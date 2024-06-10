@@ -1,0 +1,54 @@
+name: Test
+
+on: [push, pull_request]
+
+concurrency:
+  group: "${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  unit_tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+
+    - run: pytest
+
+  backend-system-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Test backend start-up
+      run: |
+        python main.py &
+        sleep 30
+        curl -I localhost:40000/info
+        pkill -f "python main.py"
