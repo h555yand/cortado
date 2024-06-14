@@ -1,6 +1,18 @@
 # Changelog of Cortado
 ---
 
+## [1.11.0] - 2023-09-13
+
+### Fixed
+
+* Various bug fixes and stability improvements [Frontend + Backend]
+
+## [1.10.0] - 2023-03-07
+
+### Added
+
+* Incremental process discovery for trace fragments (i.e., trace prefixes/infixes/postfixes)
+
 ## [1.9.0] - 2023-01-20
 
 ### Added

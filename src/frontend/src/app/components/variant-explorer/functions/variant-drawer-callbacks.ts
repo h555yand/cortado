@@ -115,6 +115,9 @@ export function activityColor(
         if (element.serviceTime?.mean !== undefined) {
           let stat = this.variantPerformanceService.serviceTimeStatistic;
           color = this.serviceTimeColorMap.getColor(element.serviceTime[stat]);
+          if (element.serviceTime[stat] === 0) {
+            color = 'url(#whiteStriped)';
+          }
           if (color == undefined) {
             color = '#d3d3d3'; // lightgrey
           }
@@ -126,8 +129,12 @@ export function activityColor(
       case ViewMode.CONFORMANCE:
         if (variant.alignment && !variant.isConformanceOutdated) {
           const p = element.asLeafNode().conformance[0];
-          color =
-            this.conformanceCheckingService.conformanceColorMap.getColor(p);
+          if (p === 0) color = 'url(#variantConformanceStriped)';
+          else
+            color =
+              this.conformanceCheckingService.variantConformanceColorMap.getColor(
+                p
+              );
         } else color = '#d3d3d3';
         break;
     }
@@ -137,6 +144,9 @@ export function activityColor(
   ) {
     let stat = this.variantPerformanceService.waitingTimeStatistic;
     color = this.waitingTimeColorMap.getColor(element.waitingTime[stat]);
+    if (element.waitingTime[stat] === 0) {
+      color = 'url(#whiteStriped)';
+    }
   }
 
   if (!color) {

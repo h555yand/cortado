@@ -1,10 +1,11 @@
 import {
   VariantFilter,
   VariantFilterService,
-} from './../../services/variantFilterService/variant-filter.service';
+} from '../../services/variantFilterService/variant-filter.service';
 
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   HostListener,
@@ -26,16 +27,16 @@ import {
   LogicalZIndex,
   Stack,
 } from 'golden-layout';
-import { Subject } from 'rxjs';
+import { from, Subject } from 'rxjs';
 import {
+  concatMap,
   delay,
-  finalize,
+  filter,
   mergeMap,
   retryWhen,
   take,
-  tap,
   takeUntil,
-  filter,
+  tap,
 } from 'rxjs/operators';
 import { GoldenLayoutHostComponent } from 'src/app/components/golden-layout-host/golden-layout-host.component';
 import { LayoutChangeDirective } from 'src/app/directives/layout-change/layout-change.directive';
@@ -62,19 +63,14 @@ import { ImageExportService } from '../../services/imageExportService/image-expo
 import { SharedDataService } from '../../services/sharedDataService/shared-data.service';
 import { DropzoneConfig } from '../drop-zone/drop-zone.component';
 import { SubvariantExplorerComponent } from './subvariant-explorer/subvariant-explorer.component';
-import { VariantSorter } from '../../objects/Variants/variant-sorter';
+import { VariantInfoExplorerComponent } from './variant-info-explorer/variant-info-explorer.component';
 import { Variant } from 'src/app/objects/Variants/variant';
 import {
-  VariantElement,
-  SequenceGroup,
-  ParallelGroup,
   deserialize,
+  ParallelGroup,
+  SequenceGroup,
+  VariantElement,
 } from 'src/app/objects/Variants/variant_element';
-import {
-  activityColor,
-  clickCallback,
-  contextMenuCallback,
-} from './functions/variant-drawer-callbacks';
 import { exportVariantDrawer } from './functions/export-variant-explorer';
 import {
   fadeInOutComponent,
@@ -91,6 +87,19 @@ import { ToastService } from 'src/app/services/toast/toast.service';
 import { ProcessTree } from 'src/app/objects/ProcessTree/ProcessTree';
 import { IVariant } from 'src/app/objects/Variants/variant_interface';
 import { LoopCollapsedVariant } from 'src/app/objects/Variants/loop_collapsed_variant';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ClusteringSettingsDialogComponent } from './clustering-settings-dialog/clustering-settings-dialog.component';
+import _ from 'lodash';
+import { InfixType } from 'src/app/objects/Variants/infix_selection';
+import { DocumentationService } from '../documentation/documentation.service';
+import * as d3 from 'd3';
+import { Arc, Pair } from '../../directives/arc-diagram/data';
+import { VariantVisualisationComponent } from './variant/subcomponents/variant-visualisation/variant-visualisation.component';
+import { FilterParams } from './arc-diagram/filter/filter-params';
+import { MaxValues } from './arc-diagram/filter/filter.component';
+import { ArcsViewMode } from './arc-diagram/arcs-view-mode';
+import { ArcDiagramService } from '../../services/arcDiagramService/arc-diagram.service';
+import { ArcDiagramComputationResult } from '../../services/arcDiagramService/model';
 
 @Component({
   selector: 'app-variant-explorer',
@@ -115,17 +124,23 @@ export class VariantExplorerComponent
     private container: ComponentContainer,
     public processTreeService: ProcessTreeService,
     elRef: ElementRef,
-    renderer: Renderer2,
+    private renderer: Renderer2,
     public performanceService: PerformanceService,
     private performanceColorService: ModelPerformanceColorScaleService,
     public variantPerformanceService: VariantPerformanceService,
-    private conformanceCheckingService: ConformanceCheckingService,
+    public conformanceCheckingService: ConformanceCheckingService,
+    public arcDiagramService: ArcDiagramService,
     private goldenLayoutComponentService: GoldenLayoutComponentService,
     public variantViewModeService: VariantViewModeService,
-    private toastService: ToastService
+    private toastService: ToastService,
+    private modalService: NgbModal,
+    private changeDetectorRef: ChangeDetectorRef,
+    private documentationService: DocumentationService
   ) {
     super(elRef.nativeElement, renderer);
+    this.explorerElement = elRef;
   }
+  explorerElement: ElementRef;
 
   collapse: boolean = false;
   maximized: boolean = false;
@@ -171,11 +186,6 @@ export class VariantExplorerComponent
 
   filterMap: Map<string, VariantFilter> = new Map<string, VariantFilter>();
 
-  // Define Callbacks
-  variantClickCallBack = clickCallback.bind(this);
-  openContextCallback = contextMenuCallback.bind(this);
-  computeActivityColor = activityColor.bind(this);
-
   public options: EditorOptions = new EditorOptions();
 
   // Exporter
@@ -186,14 +196,14 @@ export class VariantExplorerComponent
   @ViewChild('variantExplorer', { static: true })
   variantExplorerDiv: ElementRef<HTMLDivElement>;
 
-  @ViewChildren(VariantDrawerDirective)
-  variantDrawers: QueryList<VariantDrawerDirective>;
-
   @ViewChild('variantExplorerContainer')
   variantExplorerContainer: ElementRef<HTMLDivElement>;
 
   @ViewChild('tooltipContainer')
   tooltipContainer: ElementRef<HTMLDivElement>;
+
+  @ViewChildren(VariantVisualisationComponent)
+  variantVisualisations: QueryList<VariantVisualisationComponent>;
 
   public visibleVariantsHeight = 1000;
 
@@ -204,6 +214,19 @@ export class VariantExplorerComponent
   selectedGranularity = TimeUnit.SEC;
 
   originalOrder = originalOrder;
+
+  public arcs: { [id: number]: Arc[] } = {};
+  public arcsMaxValues: MaxValues = {
+    size: 1,
+    length: 1,
+    distance: 1,
+  };
+  public showFilterMenu: boolean = false;
+  public lastArcsActivitiesFilter = new Set<string>();
+  public arcsCache: { [bid: string]: Pair[] } = {};
+  public arcsViewMode: ArcsViewMode = ArcsViewMode.INITIAL;
+  public filterParams: FilterParams = new FilterParams();
+  public filtering: boolean;
 
   deleteVariant = function () {
     const bids = this.variantService.variants
@@ -217,16 +240,22 @@ export class VariantExplorerComponent
     new ContextMenuItem('Delete Variant', 'bi-trash', this.deleteVariant),
   ];
 
+  // stores the sort settings for each cluster
+  // if no clustering algo is applied we only have the key
+  // 'unefined' which is the default cluster key
+  clusterSortSettings: {} = {};
+
+  public hideRuleContent: boolean[] = [];
+  public buttonName: any = 'Expand';
+
+  toggle(index) {
+    // toggle based on index
+    this.hideRuleContent[index] = !this.hideRuleContent[index];
+  }
+
   private _destroy$ = new Subject();
 
   ngOnInit(): void {
-    this.dropZoneConfig = new DropzoneConfig(
-      '.xes',
-      'false',
-      'false',
-      '<large> Import <strong>Event Log</strong> .xes file</large>'
-    );
-
     // initialize variables and initial variants
     this.init();
     // update variant explorer on log change
@@ -237,11 +266,23 @@ export class VariantExplorerComponent
     this.listenForCorrectSyntax();
     this.listenForProcessTreeChange();
     this.conformanceCheckingService.connect();
+    this.arcDiagramService.connect();
     this.subscribeForConformanceCheckingResults();
+    this.subscribeForArcDiagramsComputationsResults();
     this.listenForLogGranularityChange();
     this.listenForLogStatChange();
     this.listenForViewModeChange();
     this.listenForLoopCollapsedVariantsChange();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length === 1) {
+        const newHeight = entries[0].contentRect.height;
+        d3.select(this.explorerElement.nativeElement)
+          .select('.dropdown-menu')
+          .style('max-height', newHeight.toString() + 'px');
+      }
+    });
+    resizeObserver.observe(this.variantExplorerDiv.nativeElement);
   }
 
   ngOnDestroy(): void {
@@ -250,7 +291,7 @@ export class VariantExplorerComponent
 
   @HostListener('window:keydown.control.q', ['$event'])
   onopenComponent(e) {
-    this.toggleQuery();
+    this.toggleQueryFilterDialog();
   }
 
   ngAfterViewInit() {
@@ -278,6 +319,7 @@ export class VariantExplorerComponent
         this.sort(this.sortingFeature);
         this.closeAllSubvariantWindows();
         this.redraw_components();
+        this.arcsCache = {};
       });
 
     this.variantFilterService.variantFilters$.subscribe((filterMap) => {
@@ -357,7 +399,7 @@ export class VariantExplorerComponent
         )
       )
       .subscribe((tree) => {
-        this.currentlyDisplayedProcessTree = tree;
+        this.currentlyDisplayedProcessTree = tree?.copy();
 
         this.variants.forEach((variant) => {
           if (variant.usedTreeForConformanceChecking)
@@ -402,6 +444,8 @@ export class VariantExplorerComponent
           this.closeAllSubvariantWindows();
           this.variantViewModeService.viewMode = ViewMode.STANDARD;
           this.variantService.areVariantLoopsCollapsed = false;
+          this.variantService.clusteringConfig = null; // reset applied clustering
+          this.arcsCache = {};
         })
       )
       .pipe(takeUntil(this._destroy$))
@@ -409,9 +453,15 @@ export class VariantExplorerComponent
   }
 
   private redraw_components() {
-    if (this.variantDrawers) {
-      for (let component of this.variantDrawers) {
-        component.redraw();
+    if (this.variantVisualisations) {
+      for (let component of this.variantVisualisations) {
+        component.variantDrawer.redraw();
+        this.renderer.setStyle(
+          component.arcDiagram.svgHtmlElement.nativeElement,
+          'display',
+          'none'
+        );
+        this.arcsViewMode = ArcsViewMode.HIDE_ALL;
       }
     }
   }
@@ -421,6 +471,16 @@ export class VariantExplorerComponent
       .pipe(takeUntil(this._destroy$))
       .subscribe(
         (res) => {
+          if ('error' in res) {
+            this.variants.forEach((v) => {
+              v.calculationInProgress = false;
+            });
+
+            this.updateAlignmentStatistics();
+            this.redraw_components();
+            return;
+          }
+
           const variant = this.variants.find((v) => v.id == res.id);
           variant.calculationInProgress = false;
           variant.isTimeouted = res.isTimeout;
@@ -434,16 +494,13 @@ export class VariantExplorerComponent
           }
 
           this.updateAlignmentStatistics();
-          this.variantDrawers
-            .find((drawer) => drawer.variant.id == res.id)
-            ?.redraw();
+          this.variantVisualisations
+            .find((vv) => vv.id == res.id)
+            ?.variantDrawer?.redraw();
         },
         (_) => {
           this.variants.forEach((v) => {
             v.calculationInProgress = false;
-            v.alignment = undefined;
-            v.deviations = undefined;
-            v.usedTreeForConformanceChecking = undefined;
           });
 
           this.updateAlignmentStatistics();
@@ -516,7 +573,7 @@ export class VariantExplorerComponent
 
   computePerformanceButtonColor = (variant: Variant) => {
     let tree;
-    tree = this.performanceService.variantsPerformance.get(variant);
+    tree = this.performanceService.variantsTreePerformance.get(variant);
 
     if (!tree) {
       return null;
@@ -554,7 +611,7 @@ export class VariantExplorerComponent
   }
 
   discoverInitialModel(): void {
-    const variants = this.getSelectedVariants().map((v) => v.variant);
+    const variants = this.getSelectedVariants();
 
     this.backendService
       .discoverProcessModelFromConcurrencyVariants(variants)
@@ -607,28 +664,23 @@ export class VariantExplorerComponent
     this.addSelectedVariantsToModelForGivenConformance(selectedVariants);
   }
 
-  handleSelectTreePerformance(variant: Variant) {
-    if (this.performanceService.isTreePerformanceAvailable(variant)) {
-      if (this.performanceService.isTreePerformanceActive(variant)) {
-        this.performanceService.unselectPerformance();
-      } else {
-        this.performanceService.setShownTreePerformance(variant);
-      }
-    } else {
-      if (this.performanceService.calculationInProgress.has(variant)) {
-        return;
-      }
-      if (this.currentlyDisplayedProcessTree) {
-        this.performanceService.updatePerformance([variant]);
-      }
-    }
+  handleTreePerformanceClear() {
+    this.performanceService.hideTreePerformance();
   }
 
-  handlePerformanceRemove(variant: Variant) {
-    this.performanceService.updatePerformance([], [variant]);
-  }
+  /**
+   * Create subvariant tab
+   * @param clusterId id of the cluster
+   * @param idx position in the cluster
+   * @param variant_id id of the variant
+   */
+  createSubVariantView(clusterId, idx, variant_id) {
+    // find variant by id
+    let variant = _.find(
+      this.displayed_variants,
+      (variant) => variant_id === variant.id
+    );
 
-  createSubVariantView(index) {
     const currently_maximized = this.maximized;
 
     const LocationSelectors: LayoutManager.LocationSelector[] = [
@@ -640,9 +692,7 @@ export class VariantExplorerComponent
 
     this.cleanUpSubVariantMap();
 
-    const id =
-      SubvariantExplorerComponent.componentName +
-      this.displayed_variants[index - 1].id;
+    const id = SubvariantExplorerComponent.componentName + variant_id;
 
     let componentItem = this._subvariantcomponentItemsMap.get(id);
 
@@ -662,12 +712,12 @@ export class VariantExplorerComponent
       const itemConfig: ComponentItemConfig = {
         id: id,
         type: 'component',
-        title: 'Sub-Variants for ' + index,
+        title: 'Sub-Variants for ' + idx + ' (Cluster ' + clusterId + ')',
         isClosable: true,
         reorderEnabled: true,
         componentState: {
-          variant: this.displayed_variants[index - 1],
-          index: index,
+          variant: variant,
+          index: idx,
         },
         maximised: true,
         componentType: SubvariantExplorerComponent.componentName,
@@ -677,6 +727,68 @@ export class VariantExplorerComponent
       componentItem = this._goldenLayout.findFirstComponentItemById(id);
       this._subvariantcomponentItemsMap.set(id, componentItem);
 
+      // Keep the stack maximized
+      if (currently_maximized) {
+        const stack = componentItem.container.parent.parent as Stack;
+        stack.toggleMaximise();
+      }
+
+      variantExplorerItem.focus();
+    }
+  }
+
+  /**
+   * Create subvariant tab
+   * @param clusterId id of the cluster
+   * @param idx position in the cluster
+   * @param variant_id id of the variant
+   */
+  createVariantInfoView(clusterId, idx, variant_id) {
+    // find variant by id
+    let variant = _.find(
+      this.displayed_variants,
+      (variant) => variant_id === variant.id
+    );
+    const currently_maximized = this.maximized;
+    const LocationSelectors: LayoutManager.LocationSelector[] = [
+      {
+        typeId: LayoutManager.LocationSelector.TypeId.FocusedStack,
+        index: undefined,
+      },
+    ];
+    this.cleanUpSubVariantMap();
+
+    const id = VariantInfoExplorerComponent.componentName + variant_id;
+
+    let componentItem = this._subvariantcomponentItemsMap.get(id);
+    // Check if the component item reference already is stored and if the item still exists
+    // Saves on a search by ID
+    if (componentItem) {
+      componentItem.focus();
+      // Instantiate a new Subvariant Component for this variant if it did not exist or is closed
+    } else {
+      const variantExplorerItem = this._goldenLayout.findFirstComponentItemById(
+        VariantExplorerComponent.componentName
+      );
+      variantExplorerItem.focus();
+      const itemConfig: ComponentItemConfig = {
+        id: id,
+        type: 'component',
+        title: 'Cases (Var.' + idx + ')',
+        isClosable: true,
+        reorderEnabled: true,
+        componentState: {
+          variant: variant,
+          index: idx,
+          clusterId: clusterId,
+          variant_id: variant_id,
+        },
+        maximised: true,
+        componentType: VariantInfoExplorerComponent.componentName,
+      };
+      this._goldenLayout.addItemAtLocation(itemConfig, LocationSelectors); //erroe here
+      componentItem = this._goldenLayout.findFirstComponentItemById(id);
+      this._subvariantcomponentItemsMap.set(id, componentItem);
       // Keep the stack maximized
       if (currently_maximized) {
         const stack = componentItem.container.parent.parent as Stack;
@@ -735,10 +847,23 @@ export class VariantExplorerComponent
         this._subvariantcomponentItemsMap.delete(id);
       }
     }
+    for (let index = 0; index < this.variants.length; index++) {
+      const id =
+        VariantInfoExplorerComponent.componentName + this.variants[index].id;
+      const componentItem = this._subvariantcomponentItemsMap.get(id);
+      if (
+        componentItem &&
+        !this._goldenLayoutHostComponent.getComponentRef(
+          componentItem.container
+        )
+      ) {
+        this._subvariantcomponentItemsMap.delete(id);
+      }
+    }
   }
 
   getSelectedVariants(): Variant[] {
-    return this.displayed_variants.filter((v) => v.isSelected);
+    return this.variants.filter((v) => v.isSelected);
   }
 
   isAnyVariantOutdated(variants: Variant[]): boolean {
@@ -756,11 +881,9 @@ export class VariantExplorerComponent
   addSelectedVariantsToModelForOutdatedConformance(
     selectedVariants: Variant[]
   ): void {
-    const selectedVariantElements = selectedVariants.map((v) => v.variant);
-
     this.backendService
       .addConcurrencyVariantsToProcessModelForUnknownConformance(
-        selectedVariantElements
+        selectedVariants
       )
       .pipe(takeUntil(this._destroy$))
       .subscribe((tree) => {
@@ -773,10 +896,10 @@ export class VariantExplorerComponent
   ): void {
     const fittingVariants = selectedVariants
       .filter((v) => v.deviations == 0)
-      .map((v) => v.variant);
+      .map((v) => v);
     const variantsToAdd = selectedVariants
       .filter((v) => v.deviations > 0)
-      .map((v) => v.variant);
+      .map((v) => v);
 
     this.backendService
       .addConcurrencyVariantsToProcessModel(variantsToAdd, fittingVariants)
@@ -795,6 +918,7 @@ export class VariantExplorerComponent
         v.deviations = undefined;
         v.calculationInProgress = false;
         v.usedTreeForConformanceChecking = undefined;
+        v.isConformanceOutdated = true;
       });
     }
 
@@ -814,9 +938,9 @@ export class VariantExplorerComponent
     // redraw if in conformance view
     if (this.variantViewModeService.viewMode === ViewMode.CONFORMANCE)
       this.getSelectedVariants().forEach((v) => {
-        this.variantDrawers
-          .find((drawer) => drawer.variant.id == v.id)
-          .redraw();
+        this.variantVisualisations
+          .find((vv) => vv.id == v.id)
+          .variantDrawer.redraw();
       });
   }
 
@@ -826,6 +950,12 @@ export class VariantExplorerComponent
 
   isNoVariantSelected(): boolean {
     return !this.isAnyVariantSelected();
+  }
+
+  isInfixSelected(): boolean {
+    return this.variants.some(
+      (v) => v.isSelected && v.infixType !== InfixType.NOT_AN_INFIX
+    );
   }
 
   areAllDisplayedVariantsSelected(): boolean {
@@ -838,7 +968,7 @@ export class VariantExplorerComponent
 
   areAllVariantsExpanded(): boolean {
     if (
-      this.variantDrawers === undefined ||
+      this.variantVisualisations === undefined ||
       (this.variants && this.variants.length < 1)
     ) {
       return false;
@@ -850,16 +980,19 @@ export class VariantExplorerComponent
     return !unexpandedVariantsExist;
   }
 
-  unExpandAll(): void {
+  expandCollapseAll(): void {
     const shouldExpand = !this.areAllVariantsExpanded();
 
-    this.variantDrawers.forEach((c) => {
+    this.variantVisualisations.forEach((vv) => {
       if (
         this.variantViewModeService.viewMode !== ViewMode.PERFORMANCE &&
-        shouldExpand != c.variant.variant.expanded
+        shouldExpand != vv.variantDrawer.variant.variant.expanded
       ) {
-        c.setExpanded(shouldExpand);
-        c.redraw();
+        vv.variantDrawer.setExpanded(shouldExpand);
+        vv.variantDrawer.redraw();
+        if (vv.arcsViewMode !== ArcsViewMode.HIDE_ALL) {
+          vv.drawArcs();
+        }
       }
     });
 
@@ -889,7 +1022,7 @@ export class VariantExplorerComponent
   }
 
   meanPerformance(): string {
-    let p = this.performanceService.mergedPerformance?.performance;
+    let p = this.performanceService.mergedTreePerformance?.performance;
     let selectedScale = this.performanceColorService.selectedColorScale;
     let pValue =
       p[selectedScale.performanceIndicator]?.[selectedScale.statistic];
@@ -897,7 +1030,7 @@ export class VariantExplorerComponent
   }
 
   variantPerformanceColor(): string {
-    let tree = this.performanceService.mergedPerformance;
+    let tree = this.performanceService.mergedTreePerformance;
     if (!tree) {
       return null;
     }
@@ -928,27 +1061,52 @@ export class VariantExplorerComponent
   }
 
   toggleQueryInfo(event: Event): void {
-    this.showQueryInfo = !this.showQueryInfo;
+    this.openDocumentation('Variant Querying');
+    // this.showQueryInfo = !this.showQueryInfo;
     event.stopPropagation();
+  }
+
+  openDocumentation(heading: string) {
+    this.documentationService.showDocumentationDialog(heading);
   }
 
   toggleBlur(event) {
     this.variantExplorerOutOfFocus = event;
   }
 
-  toggleQuery() {
+  toggleQueryFilterDialog() {
     this.queryActive = !this.queryActive;
+  }
+
+  filterToggle = true; // true by default (i.e. displayed activities are filtered)
+  toggleAppliedQueryFilter() {
+    // toggle the query filter...
+    if (this.filterToggle) {
+      this.variantFilterService.variantFilters = this.filterMap;
+    } else {
+      this.displayed_variants = this.variants;
+      this.variants.forEach((v) => (v.isDisplayed = true));
+    }
+
+    this.updateAllSubvariantWindows();
+    this.redraw_components();
   }
 
   sort(sortingFeature: string): void {
     this.sortingFeature = sortingFeature;
-    this.displayed_variants = VariantSorter.sort(
-      this.displayed_variants,
-      this.sortingFeature,
-      this.isAscendingOrder
-    ) as Variant[];
+    // -1 is the keys of the default cluster (when no clustering was applied)
+    this.clusterSortSettings[-1] = {
+      feature: sortingFeature,
+      isAscendingOrder: this.isAscendingOrder,
+    };
     this.variantExplorerDiv.nativeElement.scroll(0, 0);
     this.updateAllSubvariantWindows();
+    // to avoid expression changed after checked error
+    this.changeDetectorRef.detectChanges();
+
+    if (this.variantService.clusteringConfig) {
+      this.sortAllClusters(sortingFeature);
+    }
   }
 
   onSortOrderChanged(isAscending: boolean): void {
@@ -963,7 +1121,7 @@ export class VariantExplorerComponent
 
   onGranularityChange(granularity): void {
     if (this.processTreeService.currentDisplayedProcessTree)
-      this.performanceService.unselectPerformance();
+      this.performanceService.hideTreePerformance();
 
     this.selectedGranularity = granularity;
     this.backendService
@@ -996,7 +1154,7 @@ export class VariantExplorerComponent
       infoText = 'Removed all not filtered variants. Filters are cleared.';
     }
 
-    this.variantService.deleteVariants(bids);
+    this.variantService.deleteVariants(bids).subscribe();
 
     for (let filter of this.filterMap.keys()) {
       this.removeFilter(filter);
@@ -1032,30 +1190,177 @@ export class VariantExplorerComponent
       });
   }
 
-  showTiebreakerDialog() {
-    this.variantService.showTiebreakerDialog.next();
+  openClusteringSettingsDialog() {
+    const clusteringModel = this.modalService.open(
+      ClusteringSettingsDialogComponent,
+      {
+        ariaLabelledBy: 'modal-basic-title',
+      }
+    );
+
+    clusteringModel.componentInstance.numberOfVariants = this.variants.length;
   }
 
-  handleSelectTreeConformance(v: Variant) {
-    if (this.conformanceCheckingService.isTreeConformanceAvailable(v)) {
-      if (this.conformanceCheckingService.isTreeConformanceActive(v)) {
-        this.conformanceCheckingService.unselectTreeConformance();
-      } else {
-        this.conformanceCheckingService.setShownTreeConformance(v);
-      }
-    } else {
-      if (this.conformanceCheckingService.calculationInProgress.has(v)) {
-        return;
-      }
-      if (this.currentlyDisplayedProcessTree) {
-        this.conformanceCheckingService.updateTreeConformance([v]);
-      }
+  handleClusterSort(sortEvent, clusterId) {
+    this.clusterSortSettings[clusterId] = sortEvent;
+    this.updateAllSubvariantWindows();
+    // detect changes manually to avoid expression changed after checked
+    this.changeDetectorRef.detectChanges();
+  }
+
+  sortAllClusters(sortingFeature: string) {
+    const numOfClusters = Math.max(
+      ...this.displayed_variants.map((o) => o.clusterId)
+    );
+
+    for (let i = 0; i <= numOfClusters; i++) {
+      this.clusterSortSettings[i] = {
+        feature: sortingFeature,
+        isAscendingOrder: this.isAscendingOrder,
+      };
+    }
+
+    // -1 is the keys of the default cluster (when no clustering was applied)
+    this.clusterSortSettings[-1] = {
+      feature: sortingFeature,
+      isAscendingOrder: this.isAscendingOrder,
+    };
+  }
+
+  calculateTotalTracesInCluster(cluster) {
+    const count = cluster.reduce((a, b) => +a + +b.count, 0);
+    return count;
+  }
+
+  showVariantSequentializerDialog() {
+    this.variantService.showVariantSequentializerDialog.next();
+  }
+
+  handleTreeConformanceClear() {
+    this.conformanceCheckingService.hideTreeConformance();
+  }
+
+  performanceColumnHeader() {
+    const selectedColorScale = this.performanceColorService.selectedColorScale;
+    return `${selectedColorScale.performanceIndicator}\n(${selectedColorScale.statistic})`;
+  }
+
+  setupVariantVisualisationForArcDiagrams(
+    variantViz: VariantVisualisationComponent,
+    computedArcs: Pair[]
+  ) {
+    const { maxDistance } = variantViz.arcDiagram.parseInput(computedArcs);
+    this.arcsMaxValues = {
+      ...this.arcsMaxValues,
+      distance: Math.max(maxDistance, this.arcsMaxValues.distance),
+    };
+    this.filterParams.distanceRange.options.ceil = Math.max(
+      this.filterParams.distanceRange.high,
+      this.arcsMaxValues.distance
+    );
+    this.filterParams.lengthRange.options.ceil = Math.max(
+      this.filterParams.lengthRange.high,
+      this.arcsMaxValues.length
+    );
+    this.filterParams.sizeRange.options.ceil = Math.max(
+      this.filterParams.sizeRange.high,
+      this.arcsMaxValues.size
+    );
+
+    return variantViz;
+  }
+
+  subscribeForArcDiagramsComputationsResults() {
+    this.arcDiagramService.arcDiagramsResult
+      .pipe(takeUntil(this._destroy$))
+      .subscribe((res: ArcDiagramComputationResult) => {
+        this.arcsMaxValues = {
+          ...this.arcsMaxValues,
+          size: Math.max(res.maximal_values.size, this.arcsMaxValues.size),
+          length: Math.max(
+            res.maximal_values.length,
+            this.arcsMaxValues.length
+          ),
+        };
+        for (let [bid, pairs] of Object.entries(res['pairs'])) {
+          this.arcsCache[bid] = pairs;
+          const variantViz: VariantVisualisationComponent =
+            this.variantVisualisations.find(
+              (vv: VariantVisualisationComponent) =>
+                vv.bid == (bid as unknown as number)
+            );
+          if (variantViz) {
+            this.setupVariantVisualisationForArcDiagrams(
+              variantViz,
+              pairs
+            ).drawArcs(this.filterParams);
+          }
+        }
+      });
+  }
+
+  showSingleArcDiagram(bids: string[] | number[]) {
+    this.arcsViewMode = ArcsViewMode.SHOW_SOME;
+    this.computeAndDrawArcDiagram(bids);
+  }
+
+  computeAndDrawArcDiagram(bids: string[] | number[]) {
+    let resubscribe = this.arcDiagramService.computeArcDiagrams(
+      bids,
+      this.filterParams
+    );
+    if (resubscribe) {
+      this.subscribeForArcDiagramsComputationsResults();
     }
   }
 
-  handleConformanceRemove(v: Variant) {
-    this.conformanceCheckingService.updateTreeConformance([], [v]);
+  filterArcDiagrams(filterParams: FilterParams) {
+    this.filtering = true;
+    this.filterParams = _.cloneDeep(filterParams);
+    this.computeAndDrawArcDiagram(Object.keys(this.arcsCache));
+    this.lastArcsActivitiesFilter = new Set(
+      filterParams.activitiesSelection.selectedItems
+    );
   }
+
+  newActivitiesLoaded(newActivities: Set<string>) {
+    this.lastArcsActivitiesFilter = new Set(newActivities);
+  }
+
+  toggleArcsVisibility() {
+    if (
+      this.arcsViewMode == ArcsViewMode.SHOW_ALL ||
+      this.arcsViewMode == ArcsViewMode.SHOW_SOME
+    ) {
+      this.arcsViewMode = ArcsViewMode.HIDE_ALL;
+      this.variantVisualisations.forEach((vv) =>
+        this.renderer.setStyle(
+          vv.arcDiagram.svgHtmlElement.nativeElement,
+          'display',
+          'none'
+        )
+      );
+    } else {
+      this.arcsViewMode = ArcsViewMode.SHOW_ALL;
+
+      const paramsObs = from(
+        Array(Math.ceil(this.variants.length / 30))
+          .fill(0)
+          .map((_, idx) =>
+            this.variants.slice(30 * idx, 30 * (idx + 1)).map((v) => v.bid)
+          )
+      );
+
+      paramsObs
+        .pipe(
+          takeUntil(this._destroy$),
+          concatMap(async (param) => this.computeAndDrawArcDiagram(param))
+        )
+        .subscribe();
+    }
+  }
+
+  protected readonly ArcsViewMode = ArcsViewMode;
 }
 
 export namespace VariantExplorerComponent {

@@ -5,7 +5,7 @@
 }
 
 
-.activityOverviewContainer {
+.activity-overview-container {
   background-color: var(--box-background-color);
 }
 
@@ -24,13 +24,16 @@
 }
 
 .table-container {
-  overflow-y: auto;
-  overflow-x: auto;
+  overflow: auto auto;
   background-color: var(--box-background-color);
 }
 
 .toggle-select{
   cursor : pointer;
+}
+
+thead th {
+  vertical-align: top;
 }
 
 thead tr:nth-child(1) th {
@@ -44,16 +47,12 @@ tbody tr {
   padding-top: .25rem;
 }
 
-thead th {
-  vertical-align: top;
-}
-
 .border-color {
   border-color: var(--line-color)!important;
 }
 
 .reset-button{
-  background-color: rgba(var(--bs-dark-rgb), var(--bs-bg-opacity));
+  background-color: rgb(var(--bs-dark-rgb) / var(--bs-bg-opacity));
   color: var(--text-secondary);
   border: none;
 }
@@ -62,9 +61,9 @@ thead th {
   color: whitesmoke;
 }
 
-/*th {
+/* th {
   font-weight: normal;
-}*/
+} */
 
 
 .dropdown-menu {
@@ -100,8 +99,7 @@ thead th {
 
 .activtiy-name-cell{
   display: flex;
-  justify-content: flex-end;
-  align-content: center;
+  place-content: center flex-end;
   align-items: center;
 }
 
@@ -120,5 +118,5 @@ thead th {
 .activity-overview-table-header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: auto;
 }

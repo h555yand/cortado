@@ -54,22 +54,11 @@ export class ActivityOverviewComponent
   sortKey: string = 'activityName';
   ascending: boolean = false;
 
-  activityOverviewOutOfFocus: boolean = false;
-
-  dropZoneConfig: DropzoneConfig;
-
   resetAvailable: boolean = false;
 
   private _destroy$ = new Subject();
 
   ngOnInit(): void {
-    this.dropZoneConfig = new DropzoneConfig(
-      '.xes',
-      'false',
-      'false',
-      '<large> Import <strong>Event Log</strong> .xes file</large>'
-    );
-
     this.activityFields = [];
 
     // Handle change of loaded log
@@ -148,10 +137,6 @@ export class ActivityOverviewComponent
     }
   }
 
-  toggleBlur(event) {
-    this.activityOverviewOutOfFocus = event;
-  }
-
   handleResponsiveChange(
     left: number,
     top: number,
@@ -177,7 +162,7 @@ export class ActivityOverviewComponent
     }
   }
   deleteActivity(e: Event, activity: ActivityField) {
-    this.variantService.deleteActivity(activity.activityName);
+    this.variantService.deleteActivity(activity.activityName).subscribe();
     this.variantPerformanceService.resetVariantPerformance();
     this.resetActivityFields();
   }
@@ -212,7 +197,9 @@ export class ActivityOverviewComponent
     newActivityName: string
   ): void {
     if (oldActivityName !== newActivityName) {
-      this.variantService.renameActivity(oldActivityName, newActivityName);
+      this.variantService
+        .renameActivity(oldActivityName, newActivityName)
+        .subscribe();
       // Changing activity field table
       this.resetActivityFields();
     }

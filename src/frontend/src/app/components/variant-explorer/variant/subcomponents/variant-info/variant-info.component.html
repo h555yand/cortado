@@ -24,21 +24,26 @@
     ></ng-template
   >
 
-  <small
-    *ngIf="!variant.userDefined"
-    class="ms-1 float-end cursor-help"
-    [ngbTooltip]="variantInfoTooltip"
-    placement="end"
-    container="body"
-  >
-    {{ variant.percentage }}%<br />
-    ({{ variant.count | number }})
+  <small *ngIf="!variant.userDefined" class="ms-1 float-end">
+    <span
+      class="cursor-help"
+      [ngbTooltip]="variantInfoTooltip"
+      triggers="hover"
+      placement="end"
+      container="body"
+    >
+      {{ variant.percentage }}%<br />
+    </span>
+    <span class="cursor-pointer" (click)="emitVariantInfoWindowEvent()">
+      ({{ variant.count | number }})
+    </span>
   </small>
 
   <small
     *ngIf="variant.userDefined"
     class="ms-1 float-end cursor-help"
     ngbTooltip="User created Variant"
+    triggers="hover"
     placement="end"
     container="body"
   >
@@ -74,6 +79,7 @@
     *ngIf="variant.userDefined && variant.infixType !== 4"
     class="ms-1 float-end cursor-help"
     [ngbTooltip]="variantUserDefinedTooltip"
+    triggers="hover"
     placement="end"
     container="body"
   >

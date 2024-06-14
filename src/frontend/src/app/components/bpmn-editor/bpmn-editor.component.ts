@@ -26,7 +26,6 @@ import { BPMN_Constant } from 'src/app/constants/bpmn_model_drawer_constants';
 import { BpmnDrawerDirective } from 'src/app/directives/bpmn-drawer/bpmn-drawer.directive';
 import { getPerformanceTable } from '../process-tree-editor/utils';
 import { textColorForBackgroundColor } from 'src/app/utils/render-utils';
-import { NodeSeletionStrategy } from 'src/app/objects/ProcessTree/utility-functions/process-tree-edit-tree';
 import { takeUntil } from 'rxjs/operators';
 import { ModelViewModeService } from 'src/app/services/viewModeServices/model-view-mode.service';
 import { ViewMode } from 'src/app/objects/ViewMode';
@@ -59,8 +58,6 @@ export class BpmnEditorComponent
   selectedPerformanceIndicator: string;
   zoom: d3.ZoomBehavior<Element, unknown>;
 
-  NodeSeletionStrategy = NodeSeletionStrategy;
-  nodeSelectionStrategy: NodeSeletionStrategy = NodeSeletionStrategy.TREE;
   treeCacheLength: number = 0;
   treeCacheIndex: number = 0;
 
@@ -101,20 +98,10 @@ export class BpmnEditorComponent
       .subscribe((len) => {
         this.treeCacheLength = len;
       });
-
-    this.processTreeService.selectionMode$
-      .pipe(takeUntil(this._destroy$))
-      .subscribe((strategy) => {
-        this.nodeSelectionStrategy = strategy;
-      });
   }
 
   ngAfterViewInit(): void {
     this.nodeWidthCache = this.processTreeService.nodeWidthCache;
-    this.selectedStatistic =
-      this.performanceColorScaleService.selectedColorScale.statistic;
-    this.selectedPerformanceIndicator =
-      this.performanceColorScaleService.selectedColorScale.performanceIndicator;
 
     this.modelViewModeService.viewMode$
       .pipe(takeUntil(this._destroy$))
@@ -137,7 +124,6 @@ export class BpmnEditorComponent
     this.createArrowHeadMarker();
 
     this.addZoomFunctionality();
-    this.centerContent();
 
     this.colorMapService.colorMap$
       .pipe(takeUntil(this._destroy$))
@@ -166,6 +152,7 @@ export class BpmnEditorComponent
       .subscribe((tree) => {
         this.currentTree = tree;
         this.redraw(tree);
+        this.reset_zoom(false);
       });
 
     this.processTreeService.selectedRootNodeID$
@@ -182,6 +169,11 @@ export class BpmnEditorComponent
   }
 
   selectNodeCallBack = (self, event: PointerEvent, d) => {
+    // hide the tooltip
+    if (self.variantService.activityTooltipReference) {
+      self.variantService.activityTooltipReference.tooltip('hide');
+    }
+
     event.stopPropagation();
     event.preventDefault();
 
@@ -195,70 +187,94 @@ export class BpmnEditorComponent
   };
 
   createArrowHeadMarker() {
-    d3.select(this.svgElem.nativeElement)
-      .append('svg:defs')
-      .append('svg:marker')
-      .attr('id', 'arrow-grey')
-      .attr('refX', 3)
-      .attr('refY', 3)
-      .attr('markerWidth', 10)
-      .attr('markerHeight', 10)
-      .attr('orient', 'auto')
-      .attr('markerUnits', 'strokeWidth')
-      .append('path')
-      .attr('d', 'M 0 0 6 3 0 6 1.5 3')
-      .attr('fill', BPMN_Constant.STROKE_COLOR);
+    const marker_colors = {
+      'arrow-grey': BPMN_Constant.STROKE_COLOR,
+      'arrow-red': 'red',
+      'arrow-frozen': '#425bbf',
+    };
 
-    d3.select(this.svgElem.nativeElement)
-      .append('svg:defs')
-      .append('svg:marker')
-      .attr('id', 'arrow-red')
-      .attr('refX', 3)
-      .attr('refY', 3)
-      .attr('markerWidth', 10)
-      .attr('markerHeight', 10)
-      .attr('orient', 'auto')
-      .attr('markerUnits', 'strokeWidth')
-      .append('path')
-      .attr('d', 'M 0 0 6 3 0 6 1.5 3')
-      .attr('fill', 'red');
-
-    d3.select(this.svgElem.nativeElement)
-      .append('svg:defs')
-      .append('svg:marker')
-      .attr('id', 'arrow-frozen')
-      .attr('refX', 3)
-      .attr('refY', 3)
-      .attr('markerWidth', 10)
-      .attr('markerHeight', 10)
-      .attr('orient', 'auto')
-      .attr('markerUnits', 'strokeWidth')
-      .append('path')
-      .attr('d', 'M 0 0 6 3 0 6 1.5 3')
-      .attr('fill', '#425bbf');
+    for (const [marker_id, fill_color] of Object.entries(marker_colors)) {
+      d3.select(this.svgElem.nativeElement)
+        .append('svg:defs')
+        .append('svg:marker')
+        .attr('id', marker_id)
+        .attr('viewBox', '-1 -2 4 4')
+        .attr('refX', 0)
+        .attr('refY', 0)
+        .attr('markerWidth', BPMN_Constant.ARROW_LENGTH)
+        .attr('markerHeight', '100%')
+        .attr('orient', 'auto')
+        .attr('markerUnits', 'userSpaceOnUse')
+        .append('polygon')
+        .attr('points', '-1,-2 3,0 -1,2 0,0')
+        .attr('fill', fill_color);
+    }
   }
 
   redraw(tree: ProcessTree) {
+    this.selectedStatistic =
+      this.performanceColorScaleService.selectedColorScale.statistic;
+    this.selectedPerformanceIndicator =
+      this.performanceColorScaleService.selectedColorScale.performanceIndicator;
+
     this.bpmnDrawer.redraw(tree);
     this.selectBPMNNode(this.selectedRootID);
   }
 
   tooltipContent = (d: ProcessTree) => {
-    if (d.hasPerformance() && d.label !== ProcessTreeOperator.tau) {
-      return (
-        `<div style="display: flex; justify-content: space-between" class="performance-tooltip-header-style bg-dark">
-        <h6 style="flex: 1" class="performance-tooltip-header">` +
-        (d.label || d.operator) +
-        `</h6>
-      </div>` +
+    let returnTempValue = d.label || d.operator;
+
+    const tableHead =
+      `<div style="display: flex; justify-content: space-between; border-radius: 5px 5px 0px 0px;" class="bg-dark">
+        <h6 style="flex: 1; margin-top: 8px;">` +
+      (d.label || d.operator) +
+      `</h6>
+      </div>`;
+
+    if (
+      this.modelViewModeService.viewMode === ViewMode.PERFORMANCE &&
+      d.hasPerformance() &&
+      d.label !== ProcessTreeOperator.tau
+    ) {
+      returnTempValue =
+        tableHead +
         getPerformanceTable(
           d.performance,
           this.selectedPerformanceIndicator,
           this.selectedStatistic
-        )
-      );
+        );
+    } else if (
+      this.modelViewModeService.viewMode === ViewMode.CONFORMANCE &&
+      d.conformance !== null
+    ) {
+      returnTempValue =
+        tableHead +
+        `<table class="table table-dark table-striped table-bordered">
+          <tr>
+            <td>Weighted</td>
+            <td>Conformance</td>
+            <td>Weight</td>
+          </tr>` +
+        `<tr>
+            <td>Equally</td>
+            <td>${(d.conformance?.weighted_equally.value * 100).toFixed(
+              2
+            )}%</td>
+            <td>${d.conformance?.weighted_equally.weight}</td>
+        </tr>` +
+        (d.conformance?.weighted_by_counts !== null
+          ? `<tr>
+            <td>By Log Frequency</td>
+            <td>${(d.conformance?.weighted_by_counts?.value * 100).toFixed(
+              2
+            )}%</td>
+            <td>${d.conformance?.weighted_by_counts?.weight}</td>
+        </tr>`
+          : '') +
+        '</table>';
     }
-    return d.label || d.operator;
+
+    return returnTempValue;
   };
 
   computeNodeColor = (pt: ProcessTree) => {
@@ -267,11 +283,14 @@ export class BpmnEditorComponent
     switch (this.modelViewModeService.viewMode) {
       case ViewMode.CONFORMANCE:
         if (pt.conformance === null) return '#404041';
-        return this.conformanceCheckingService.conformanceColorMap.getColor(
+        const conformanceValue =
           this.conformanceCheckingService.isConformanceWeighted &&
-            pt.conformance.weighted_by_counts != undefined
-            ? pt.conformance.weighted_by_counts.value
-            : pt.conformance.weighted_equally.value
+          pt.conformance?.weighted_by_counts != undefined
+            ? pt.conformance?.weighted_by_counts.value
+            : pt.conformance?.weighted_equally.value;
+        if (conformanceValue === 0) return 'url(#modelConformanceStriped)';
+        return this.conformanceCheckingService.modelConformanceColorMap.getColor(
+          conformanceValue
         );
       case ViewMode.PERFORMANCE:
         if (
@@ -280,13 +299,20 @@ export class BpmnEditorComponent
             this.selectedStatistic
           ] !== undefined
         ) {
-          color = this.performanceColorMap
-            .get(pt.id)
-            .getColor(
-              pt.performance[this.selectedPerformanceIndicator][
-                this.selectedStatistic
-              ]
-            );
+          if (
+            pt.performance[this.selectedPerformanceIndicator][
+              this.selectedStatistic
+            ] === 0
+          )
+            return 'url(#whiteStriped)';
+          else
+            return this.performanceColorMap
+              .get(pt.id)
+              .getColor(
+                pt.performance[this.selectedPerformanceIndicator][
+                  this.selectedStatistic
+                ]
+              );
         } else {
           color = '#404040';
         }
@@ -353,16 +379,6 @@ export class BpmnEditorComponent
     }
   }
 
-  selectNode(): void {
-    this.processTreeService.selectedRootNodeID = null;
-    this.processTreeService.selectionMode = NodeSeletionStrategy.NODE;
-  }
-
-  selectSubtree(): void {
-    this.processTreeService.selectedRootNodeID = null;
-    this.processTreeService.selectionMode = NodeSeletionStrategy.TREE;
-  }
-
   undo(): void {
     this.processTreeService.undo();
   }
@@ -398,35 +414,15 @@ export class BpmnEditorComponent
     this.processTreeService.deleteSelected(this.selectedNode.datum());
   }
 
-  deleteInactive() {
-    return (
-      this.selectedRootID == null ||
-      (this.nodeSelectionStrategy == this.NodeSeletionStrategy.NODE &&
-        this.selectedNode &&
-        this.selectedNode.datum().children.length > 0)
-    );
-  }
-
   addZoomFunctionality(): void {
-    this.mainGroup.attr(
-      'transform',
-      `translate(${
-        3 * BPMN_Constant.HORIZONTALSPACING + 2 * BPMN_Constant.START_END_RADIUS
-      }, ${this.bpmnContainerElem.nativeElement.offsetHeight / 2})`
-    );
-
     const zooming = function (event) {
-      this.mainGroup.attr(
-        'transform',
-        event.transform.translate(
-          3 * BPMN_Constant.HORIZONTALSPACING +
-            2 * BPMN_Constant.START_END_RADIUS,
-          this.bpmnContainerElem.nativeElement.offsetHeight / 2
-        )
-      );
+      this.mainGroup.attr('transform', event.transform.translate(0, 0));
     }.bind(this);
 
-    this.zoom = d3.zoom().scaleExtent([0.1, 3]).on('zoom', zooming);
+    this.zoom = d3
+      .zoom()
+      .scaleExtent([BPMN_Constant.MIN_ZOOM, BPMN_Constant.MAX_ZOOM])
+      .on('zoom', zooming);
     d3.select(this.svgElem.nativeElement)
       .call(this.zoom)
       .on('dblclick.zoom', null);
@@ -435,21 +431,30 @@ export class BpmnEditorComponent
   reset_zoom(animation: boolean = true): void {
     const rTime = animation ? 250 : 0;
 
+    const bounds = this.mainGroup.node().getBBox();
+    const editorZone = <any>this.mainGroup.node().parentElement;
+    const svgWidth = editorZone.width.baseVal.value - 2 * BPMN_Constant.PADDING;
+    const svgHeight =
+      editorZone.height.baseVal.value - 2 * BPMN_Constant.PADDING;
+
+    // Calculate the scale to fit the content within the SVG
+    let scale = Math.min(svgWidth / bounds.width, svgHeight / bounds.height);
+    scale = Math.min(scale, BPMN_Constant.DEFAULT_ZOOM);
+    scale = Math.max(scale, BPMN_Constant.MIN_ZOOM);
+
+    // Center SVG
+    const translateX = (svgWidth - bounds.width * scale) / 2;
+    const translateY = (svgHeight - bounds.height * scale) / 2;
+
     d3.select(this.svgElem.nativeElement)
       .transition()
       .duration(rTime)
       .ease(d3.easeExpInOut)
       .call(
         this.zoom.transform,
-        d3.zoomIdentity.translate(
-          3 * BPMN_Constant.HORIZONTALSPACING +
-            2 * BPMN_Constant.START_END_RADIUS,
-          0
-        )
+        d3.zoomIdentity.translate(translateX, translateY).scale(scale)
       );
   }
-
-  centerContent(): void {}
 
   exportBPMN(svg: SVGGraphicsElement): void {
     // Copy the current tree
@@ -467,23 +472,23 @@ export class BpmnEditorComponent
       .attr('data-bs-html', 'none')
       .attr('data-bs-template', 'none');
 
+    // Reset origin and add padding
     bpmn
       .select('#bpmn-zoom-group')
       .attr(
         'transform',
-        `translate(${
-          3 * BPMN_Constant.HORIZONTALSPACING +
-          2 * BPMN_Constant.START_END_RADIUS
-        }, ${2 * BPMN_Constant.VERTICALSPACING})`
+        `translate(${BPMN_Constant.PADDING}, ${BPMN_Constant.PADDING})`
       );
+
+    // Change Cortado colors of BPMN Nodes to black and white
+    bpmn.selectAll('.BPMNOperatorNode').attr('fill', 'white');
+    bpmn.selectAll('.BPMNOperatorText').attr('fill', 'black');
 
     // Export the BPMN
     this.imageExportService.export(
       'bpmn_diagram',
-      svgBBox.width +
-        5 * BPMN_Constant.HORIZONTALSPACING +
-        4 * BPMN_Constant.START_END_RADIUS,
-      svgBBox.height + 4 * BPMN_Constant.VERTICALSPACING,
+      svgBBox.width + 2 * BPMN_Constant.PADDING,
+      svgBBox.height + 2 * BPMN_Constant.PADDING,
       bpmn_copy
     );
   }

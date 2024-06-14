@@ -22,12 +22,14 @@ import { ProcessTreeEditorComponent } from '../process-tree-editor/process-tree-
 import { VariantExplorerComponent } from '../variant-explorer/variant-explorer.component';
 import { ActivityOverviewComponent } from '../activity-overview/activity-overview.component';
 import { SubvariantExplorerComponent } from '../variant-explorer/subvariant-explorer/subvariant-explorer.component';
+import { VariantInfoExplorerComponent } from '../variant-explorer/variant-info-explorer/variant-info-explorer.component';
+import { CaseExplorerComponent } from '../variant-explorer/case-explorer/case-explorer.component';
 import {
   findContentItemByUniqueID,
   GoldenLayoutComponentService,
 } from '../../services/goldenLayoutService/golden-layout-component.service';
 import { BpmnEditorComponent } from '../bpmn-editor/bpmn-editor.component';
-import { VariantEditorComponent } from '../variant-editor/variant-editor.component';
+import { VariantModelerComponent } from '../variant-modeler/variant-modeler.component';
 import { InfoBoxComponent } from '../info-box/info-box.component';
 import { LayoutChangeDirective } from 'src/app/directives/layout-change/layout-change.directive';
 
@@ -36,6 +38,8 @@ import { VariantPerformanceComponent } from '../variant-performance/variant-perf
 import { ConformanceTabComponent } from '../conformance-tab/conformance-tab.component';
 import { ViewMode } from 'src/app/objects/ViewMode';
 import { VariantViewModeService } from 'src/app/services/viewModeServices/variant-view-mode.service';
+import { LpmExplorerComponent } from '../lpm-explorer/lpm-explorer.component';
+import { LpmMetricsTabComponent } from '../lpm-explorer/lpm-metrics-tab/lpm-metrics-tab.component';
 @Component({
   selector: 'app-golden-layout-host',
   templateUrl: './golden-layout-host.component.html',
@@ -113,6 +117,16 @@ export class GoldenLayoutHostComponent implements OnDestroy {
     );
 
     this.goldenLayoutComponentService.registerComponentType(
+      VariantInfoExplorerComponent.componentName,
+      VariantInfoExplorerComponent
+    );
+
+    this.goldenLayoutComponentService.registerComponentType(
+      CaseExplorerComponent.componentName,
+      CaseExplorerComponent
+    );
+
+    this.goldenLayoutComponentService.registerComponentType(
       VariantMinerComponent.componentName,
       VariantMinerComponent
     );
@@ -133,8 +147,18 @@ export class GoldenLayoutHostComponent implements OnDestroy {
     );
 
     this.goldenLayoutComponentService.registerComponentType(
-      VariantEditorComponent.componentName,
-      VariantEditorComponent
+      VariantModelerComponent.componentName,
+      VariantModelerComponent
+    );
+
+    this.goldenLayoutComponentService.registerComponentType(
+      LpmExplorerComponent.componentName,
+      LpmExplorerComponent
+    );
+
+    this.goldenLayoutComponentService.registerComponentType(
+      LpmMetricsTabComponent.componentName,
+      LpmMetricsTabComponent
     );
 
     this._goldenLayout = new GoldenLayout(

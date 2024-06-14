@@ -43,6 +43,7 @@ Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for impo
 ### Start Backend
 * Navigate to `src/backend/`
 * Execute `python main.py`
+* For dynamic reloading of source code files, set environment variable `CORTADO_DEBUG` to `1`
 ### Start Frontend 
 * In a Web-Browser
   * Navigate to `src/frontend/`
@@ -51,7 +52,7 @@ Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for impo
 * In a dedicated Window of the Current OS
   * Navigate to `src/frontend/`
   * Execute `npm start` to build & run Cortado's frontend
-  * Execute `electron-live-reload` that starts a window with Cortado
+  * Execute `npm run electron-live-reload` that starts a window with Cortado
 
 
 ## Build Cortado&mdash;Standalone Application
@@ -70,20 +71,42 @@ Thus, if you are building Cortado for Windows, you must run the corresponding sc
 
 After the successful execution of the build script, the build is located in `src/frontend/`
 
+## Contributing
+
+### Linting and Code Quality
+
+To maintain consistent code quality and formatting crucial, we have integrated GitLab's CI/CD pipeline along with npm scripts for linting and manual fixing of formatting errors.
+
+#### GitLab Pipeline
+
+Our GitLab pipeline plays a pivotal role in ensuring code quality. Whenever changes are pushed to the repository, the pipeline automatically triggers linting checks using various tools. We have separate stages within the pipeline to handle TypeScript, HTML, and SASS linting, as well as Python code formatting checks. If any issues are detected, the pipeline provides prompt feedback, helping contributors address the problems early in the development cycle.
+
+#### npm Scripts
+
+In addition to the automated pipeline, we have set up npm scripts that facilitate local development and manual checks for formatting errors.
+
+- To perform comprehensive linting across TypeScript, HTML, and SASS files, use: `npm run lint`
+
+- If linting issues are detected, you can initiate automatic fixes for TypeScript and SASS files using: `npm run lint-scripts-fix` and `npm run lint-styles-fix`
+
+- For HTML files, you can manually review and fix the issues identified by the linter.
+
+- We also support Python code formatting checks using the command: `black --check .`
+
+These tools and scripts are designed to streamline the development process, ensuring that our codebase remains clean, consistent, and of high quality. Before submitting your contributions, make sure to run these checks locally and address any issues to facilitate smoother code reviews and integration.
 
 ## Citing Cortado
 
 If you are using or referencing Cortado in scientific work, please cite Cortado as follows.
 
-> Schuster, D., van Zelst, S.J., van der Aalst, W.M.P. (2021). Cortado—An Interactive Tool for Data-Driven Process Discovery and Modeling. In: Application and Theory of Petri Nets and Concurrency. PETRI NETS 2021. Lecture Notes in Computer Science, vol 12734. Springer, Cham. https://doi.org/10.1007/978-3-030-76983-3_23
+> Schuster, D., van Zelst, S.J., van der Aalst, W.M.P. (2023). Cortado: A dedicated process mining tool for interactive process discovery. SoftwareX Vol. 22. Elsevier. https://doi.org/10.1016/j.softx.2023.101373.
+
 
 Download citation 
-[.BIB](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=bibtex&flavour=citation)&nbsp;
-[.RIS](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=refman&flavour=citation)&nbsp;
-[.ENW](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=endnote&flavour=citation)
+https://www.sciencedirect.com/science/article/pii/S2352711023000699
 
 DOI
-[10.1007/978-3-030-76983-3_23](https://doi.org/10.1007/978-3-030-76983-3_23)
+[10.1016/j.softx.2023.101373](https://doi.org/10.1016/j.softx.2023.101373)
 
 
 

@@ -19,7 +19,11 @@
       <!--<div class="form-text">Service time aggregation method</div>-->
     </div>
 
-    <app-color-map [colorMapValues]="serviceTimeValues"></app-color-map>
+    <app-color-map
+      [colorMapValues]="serviceTimeValues"
+      [firstColorStriped]="true"
+      [firstColorDetached]="true"
+    ></app-color-map>
   </div>
 </div>
 
@@ -44,6 +48,10 @@
       <!--<div class="form-text">Waiting time aggregation method</div>-->
     </div>
 
-    <app-color-map [colorMapValues]="waitingTimeValues"></app-color-map>
+    <app-color-map
+      [colorMapValues]="waitingTimeValues"
+      [firstColorStriped]="true"
+      [firstColorDetached]="true"
+    ></app-color-map>
   </div>
 </div>

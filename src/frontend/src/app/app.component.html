@@ -1,13 +1,23 @@
-<app-header-bar #headerComponent></app-header-bar>
+<app-loading-overlay> </app-loading-overlay>
 
-<app-golden-layout-host #goldenLayoutHost></app-golden-layout-host>
+<app-drop-zone
+  [dropzoneConfig]="dropZoneConfig"
+  (fileOnHover)="toggleBlur($event)"
+>
+</app-drop-zone>
 
-<app-footer #footerComponent></app-footer>
+<div [class.blur-out-of-focus]="goldenLayoutHostOutOfFocus">
+  <app-header-bar #headerComponent></app-header-bar>
 
-<app-api-error-dialog></app-api-error-dialog>
+  <app-golden-layout-host #goldenLayoutHost></app-golden-layout-host>
 
-<app-toaster></app-toaster>
+  <app-footer #footerComponent></app-footer>
 
-<app-variant-conformance-dialog></app-variant-conformance-dialog>
+  <app-api-error-dialog></app-api-error-dialog>
 
-<app-tiebreaker></app-tiebreaker>
+  <app-toaster></app-toaster>
+
+  <app-variant-sequentializer></app-variant-sequentializer>
+  
+  <app-variant-conformance-dialog></app-variant-conformance-dialog>
+</div>

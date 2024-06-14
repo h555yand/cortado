@@ -68,21 +68,16 @@ export function insertNode(
     }
 
     case NodeInsertionStrategy.CHANGE: {
-      if (operator) {
-        selectedNode.operator = operator;
-        selectedNode.label = null;
-      } else if (label) {
-        selectedNode.label = label;
-        selectedNode.operator = null;
-      }
+      const idx: number = selectedNode.parent.children.indexOf(selectedNode);
+      newNode.parent = selectedNode.parent;
+      selectedNode.parent.children.splice(idx, 1, newNode);
+      if (operator) newNode.children = selectedNode.children;
+      newNode.children.forEach((child) => {
+        child.parent = newNode;
+      });
       break;
     }
   }
-}
-
-export enum NodeSeletionStrategy {
-  NODE = 'Node',
-  TREE = 'Tree',
 }
 
 export enum NodeInsertionStrategy {

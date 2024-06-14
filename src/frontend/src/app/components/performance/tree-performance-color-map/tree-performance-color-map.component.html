@@ -30,6 +30,7 @@
         <i
           class="bi bi-info-circle"
           [ngbTooltip]="modeLongHelpText"
+          triggers="hover"
           container="body"
         ></i>
       </div>
@@ -104,7 +105,11 @@
       Color Map
     </h5>
     <p class="card-text">
-      <app-color-map [colorMapValues]="colorMapValues"></app-color-map>
+      <app-color-map
+        [colorMapValues]="colorMapValues"
+        [firstColorStriped]="true"
+        [firstColorDetached]="true"
+      ></app-color-map>
     </p>
   </div>
 </div>

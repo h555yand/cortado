@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@angular/core';
 import * as d3 from 'd3';
 import { saveAs } from 'file-saver';
-import { ELECTRON_SERVICE } from 'src/app/tokens';
-import { ElectronServiceInterface } from '../electronService/electron.service';
+import { ElectronService } from '../electronService/electron.service';
+import { HttpClient } from '@angular/common/http';
+import { optimize } from 'svgo/dist/svgo.browser.js';
+import { ConformanceCheckingService } from '../conformanceChecking/conformance-checking.service';
+import { addPatternDefinitions } from 'src/app/utils/render-utils';
 
 /***
 A service that recieves SVG elements from member components and provides conversion and saving functionality.
@@ -13,18 +16,28 @@ A service that recieves SVG elements from member components and provides convers
 })
 export class ImageExportService {
   constructor(
-    @Inject(ELECTRON_SERVICE) private electronService: ElectronServiceInterface
+    private electronService: ElectronService,
+    private http: HttpClient,
+    private conformanceCheckingService: ConformanceCheckingService
   ) {}
 
-  export(
+  async export(
     filename: string,
     width?: number,
     height?: number,
     ...svgs: SVGGraphicsElement[]
   ) {
-    let svg = this.constructSVG(svgs);
+    let svg = await this.constructSVG(svgs);
 
-    // TODO Add Conversion logic
+    const base64EncodedFont = await this.getBase64EncodedFont(
+      '/assets/fonts/Roboto/Roboto-Regular.ttf'
+    );
+    const fontFace = `@font-face {
+        font-family: 'Roboto';
+        src: url(data:font/truetype;base64,${base64EncodedFont}) format('truetype');
+      }`;
+
+    svg.mainSVG.append('style').attr('type', 'text/css').text(fontFace);
 
     if (height) svg.svg_width = width;
     if (width) svg.svg_height = height;
@@ -34,6 +47,7 @@ export class ImageExportService {
 
   constructSVG(svgs: SVGGraphicsElement[]): SVG {
     let svg = new SVG();
+    svg.appendDefs(this.conformanceCheckingService);
     svg.appendRight(svgs);
     return svg;
   }
@@ -43,10 +57,31 @@ export class ImageExportService {
 
   // TODO Implement in new Issue
   convert_svg_to_pdf() {}
+
+  private convertBlobToBase64(blob: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64String = reader.result.toString().split(',')[1];
+        resolve(base64String);
+      };
+      reader.onerror = () => {
+        reject('Error converting blob to Base64');
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async getBase64EncodedFont(fontFilePath: string): Promise<string> {
+    const fontFile = await this.http
+      .get(fontFilePath, { responseType: 'blob' })
+      .toPromise();
+    return this.convertBlobToBase64(fontFile);
+  }
 }
 
 class SVG {
-  private mainSVG;
+  readonly mainSVG;
 
   private width = 0;
   private height = 0;
@@ -55,13 +90,7 @@ class SVG {
     this.mainSVG = d3
       .create('svg')
       .attr('xmlns', 'http://www.w3.org/2000/svg')
-      .attr(
-        'font-family',
-        '-apple-system,BlinkMacSystemFont,"Segoe UI", Roboto,\
-                            "Helvetica Neue",Arial,"Noto Sans","Liberation Sans",\
-                            sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol",\
-                            "Noto Color Emoji"'
-      );
+      .attr('font-family', 'Roboto, sans-serif');
   }
 
   public append(x: number, y: number, svgs: SVGGraphicsElement[]): SVG {
@@ -90,6 +119,10 @@ class SVG {
     return this;
   }
 
+  public appendDefs(conformanceCheckingService: ConformanceCheckingService) {
+    addPatternDefinitions(this.mainSVG, conformanceCheckingService);
+  }
+
   public appendRight(svgs: SVGGraphicsElement[]) {
     return this.append(this.width, 0, svgs);
   }
@@ -98,11 +131,13 @@ class SVG {
     return this.append(0, this.height, svgs);
   }
 
-  public store(filename: string, electronService: ElectronServiceInterface) {
+  public store(filename: string, electronService: ElectronService) {
     this.mainSVG.attr('height', this.height);
     this.mainSVG.attr('width', this.width);
 
-    const file = new Blob([this.mainSVG.node().outerHTML], {
+    const blob = optimize(this.mainSVG.node().outerHTML).data;
+
+    const file = new Blob([blob], {
       type: 'image/svg+xml',
     });
     //filename = filename.endsWith('.svg') ? filename : filename + '.svg';

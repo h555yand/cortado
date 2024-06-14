@@ -9,6 +9,7 @@ import {
 import { VariantDrawerDirective } from 'src/app/directives/variant-drawer/variant-drawer.directive';
 import { InfixType } from 'src/app/objects/Variants/infix_selection';
 import { SubvariantPattern } from 'src/app/objects/Variants/variant-miner-types';
+import { SkipGroup } from 'src/app/objects/Variants/variant_element';
 
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
@@ -20,6 +21,9 @@ export class VariantMinerPatternComponent implements AfterViewInit {
   @Input()
   pattern: SubvariantPattern;
   infixtype = InfixType;
+
+  @Input()
+  showConformance: boolean;
 
   @Input()
   id: number;
@@ -47,5 +51,9 @@ export class VariantMinerPatternComponent implements AfterViewInit {
         self.isVisible = isIntersecting;
       }
     );
+  }
+
+  isSkipGroupPattern() {
+    return this.pattern.variant instanceof SkipGroup;
   }
 }

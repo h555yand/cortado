@@ -17,7 +17,7 @@ import { InfixType } from 'src/app/objects/Variants/infix_selection';
 import { Variant } from 'src/app/objects/Variants/variant';
 import { ColorMap } from 'src/app/objects/ColorMap';
 import * as d3 from 'd3';
-import { COLORS_RED_GREEN } from 'src/app/objects/Colors';
+import { COLORS_BLUE, COLORS_PURPLE } from 'src/app/objects/Colors';
 import { ROUTES } from 'src/app/constants/backend_route_constants';
 import { ProcessTreeService } from '../processTreeService/process-tree.service';
 import { BackendService } from '../backendService/backend.service';
@@ -38,23 +38,44 @@ export class ConformanceCheckingService {
   ) {
     this.processTreeService.currentDisplayedProcessTree$.subscribe((pt) => {
       if (!processTreesEqual(pt, this.usedProcessTreeForTreeConformance)) {
-        this.activeTreeConformance = undefined;
-        this.availableTreeConformances.clear();
-        this.variantsConformance.clear();
+        this.activeTreeConformances.clear();
+        this.mergedTreeConformance = undefined;
+        this.variantsTreeConformance.clear();
+        this.hideTreeConformance();
       }
+    });
+
+    this.modelViewModeService.viewMode$.subscribe((viewMode) => {
+      if (viewMode === ViewMode.CONFORMANCE && this.anyTreeConformanceActive)
+        this.showTreeConformance();
     });
   }
 
-  public readonly conformanceColorMap = new ColorMap(
+  public readonly modelConformanceColorMap = new ColorMap(
     d3
       .scaleThreshold<any, any>()
       .domain(
-        COLORS_RED_GREEN.map(
-          (value, index) => index / (COLORS_RED_GREEN.length - 1)
-        )
+        COLORS_PURPLE.map((value, index) => index / (COLORS_PURPLE.length - 1))
       )
-      .range(['#d3d3d3', ...COLORS_RED_GREEN])
+      .range(['#d3d3d3', ...COLORS_PURPLE])
   );
+  public readonly modelConformanceStripeColors = [
+    COLORS_PURPLE[0],
+    COLORS_PURPLE[1],
+  ];
+
+  public readonly variantConformanceColorMap = new ColorMap(
+    d3
+      .scaleThreshold<any, any>()
+      .domain(
+        COLORS_BLUE.map((value, index) => index / (COLORS_BLUE.length - 1))
+      )
+      .range(['#d3d3d3', ...COLORS_BLUE])
+  );
+  public readonly variantConformanceStripeColors = [
+    COLORS_BLUE[0],
+    COLORS_BLUE[1],
+  ];
 
   private socket: WebSocketSubject<any>;
   private runningRequests: number[] = [];
@@ -78,10 +99,9 @@ export class ConformanceCheckingService {
     return this.isConformanceWeighted$.value;
   }
 
-  private activeTreeConformance: Variant;
-  private availableTreeConformances: Set<Variant> = new Set<Variant>();
-  public mergedTreeConformance: ProcessTree;
-  public variantsConformance: Map<Variant, ProcessTree> = new Map<
+  private activeTreeConformances: Set<Variant> = new Set<Variant>();
+  private mergedTreeConformance: ProcessTree;
+  public variantsTreeConformance: Map<Variant, ProcessTree> = new Map<
     Variant,
     ProcessTree
   >();
@@ -91,7 +111,7 @@ export class ConformanceCheckingService {
   public connect(): boolean {
     if (!this.socket || this.socket.closed) {
       this.socket = webSocket(
-        ROUTES.WS_HTTP_BASE_URL + ROUTES.VARIANT_CONFORMANCE + 'conformancews'
+        ROUTES.WS_HTTP_BASE_URL + ROUTES.VARIANT_CONFORMANCE
       );
       const results = this.socket.pipe(
         catchError((error) => {
@@ -100,13 +120,20 @@ export class ConformanceCheckingService {
           );
           this.runningRequests = [];
           this.socket = null;
-          if (error instanceof CloseEvent) {
+
+          throw error;
+        }),
+        tap((_) => {
+          this.infoService.removeRequest(this.runningRequests.pop());
+        }),
+        map((result) => {
+          if ('error' in result) {
             Swal.fire({
               title: 'Error occurred',
               html:
                 '<b>Error message: </b><br>' +
                 '<code>' +
-                'websocket connection for conformance checking was closed' +
+                'Calculating conformance statistics failed' +
                 '</code>',
               icon: 'error',
               showCloseButton: false,
@@ -114,13 +141,8 @@ export class ConformanceCheckingService {
               showCancelButton: true,
               cancelButtonText: 'close',
             });
+            return result;
           }
-          throw error;
-        }),
-        tap((_) => {
-          this.infoService.removeRequest(this.runningRequests.pop());
-        }),
-        map((result) => {
           return new ConformanceCheckingResult(
             result['id'],
             result['type'],
@@ -134,7 +156,7 @@ export class ConformanceCheckingService {
       );
       [this.varResults, this.patternResults] = partition(
         results,
-        (ccr: ConformanceCheckingResult) => ccr.type === 1
+        (ccr: ConformanceCheckingResult) => ccr.type === 1 || 'error' in ccr
       );
 
       return true;
@@ -185,124 +207,97 @@ export class ConformanceCheckingService {
   }
 
   public isTreeConformanceActive(v: Variant) {
-    return (
-      this.activeTreeConformance === v &&
-      this.modelViewModeService.viewMode === ViewMode.CONFORMANCE
-    );
-  }
-
-  public isMergedTreeConformanceActive() {
-    return (
-      this.activeTreeConformance === null &&
-      this.modelViewModeService.viewMode === ViewMode.CONFORMANCE
-    );
-  }
-
-  public isTreeConformanceAvailable(v: Variant) {
-    return this.availableTreeConformances.has(v);
-  }
-
-  public isMergedTreeConformanceAvailable() {
-    return this.mergedTreeConformance !== undefined;
+    return this.activeTreeConformances.has(v);
   }
 
   public isTreeConformanceCalcInProgress(v: Variant) {
     return this.calculationInProgress.has(v);
   }
 
-  public anyTreeConformanceAvailable() {
-    return this.availableTreeConformances.size > 0;
+  public anyTreeConformanceActive() {
+    return this.activeTreeConformances.size > 0;
   }
 
-  public updateTreeConformance(
-    variants: Variant[],
-    removeVariants?: Variant[]
-  ) {
+  private updateTreeConformance(variants: Variant[]) {
     this.latestRequest?.unsubscribe();
-
-    if (removeVariants !== undefined) {
-      removeVariants.forEach((v) => this.deleteTreeConformance(v));
-      this.calculationInProgress.clear();
-    }
-
-    // Add previously computed variants again to get updated merged values
-    // conformance values should be cached in backend
-    const variantsCombined: Variant[] = Array.from(
-      new Set([
-        ...variants,
-        ...this.variantsConformance.keys(),
-        ...this.calculationInProgress,
-      ])
-    );
-
-    variantsCombined.forEach((v) => {
-      if (!this.availableTreeConformances.has(v))
-        this.calculationInProgress.add(v);
-    });
 
     this.usedProcessTreeForTreeConformance =
       this.processTreeService.currentDisplayedProcessTree.copy(false);
 
     this.latestRequest = this.backendService
-      .getTreeConformance(
-        this.usedProcessTreeForTreeConformance,
-        variantsCombined
-      )
+      .getTreeConformance(this.usedProcessTreeForTreeConformance, variants)
       .subscribe((res: treeConformanceResult) => {
         this.mergedTreeConformance = res.merged_conformance_tree;
 
-        variantsCombined.forEach((variant, index) => {
+        variants.forEach((variant, index) => {
           const pt = res.variants_tree_conformance[index];
-          this.availableTreeConformances.add(variant);
-          this.variantsConformance.set(variant, pt);
+          this.activeTreeConformances.add(variant);
+          this.variantsTreeConformance.set(variant, pt);
 
-          const confButton = document.getElementById(
-            `conformanceButton${variant?.bid}`
-          );
+          this.calculationInProgress.delete(variant);
         });
 
-        this.calculationInProgress.clear();
-
-        if (variants.length == 1) this.setShownTreeConformance(variants[0]);
-        else if (variantsCombined.length > 0) this.showMergedTreeConformance();
-        else this.unselectTreeConformance();
+        this.showTreeConformance();
       });
   }
 
-  public deleteTreeConformance(v: Variant): void {
-    if (this.activeTreeConformance == v) {
-      this.unselectTreeConformance();
-    }
-    this.availableTreeConformances.delete(v);
-    this.variantsConformance.delete(v);
+  public showTreeConformance() {
+    if (
+      this.processTreeService.currentDisplayedProcessTree !==
+      this.mergedTreeConformance
+    )
+      this.processTreeService.currentDisplayedProcessTree =
+        this.mergedTreeConformance;
+    if (this.modelViewModeService.viewMode !== ViewMode.CONFORMANCE)
+      this.modelViewModeService.viewMode = ViewMode.CONFORMANCE;
   }
 
-  public setShownTreeConformance(v: Variant) {
-    this.activeTreeConformance = v;
-    this.processTreeService.currentDisplayedProcessTree =
-      this.variantsConformance.get(v);
-    this.modelViewModeService.viewMode = ViewMode.CONFORMANCE;
-  }
-
-  public unselectTreeConformance() {
+  public hideTreeConformance() {
+    this.stopRunningRequest();
     this.modelViewModeService.viewMode = ViewMode.STANDARD;
-    this.activeTreeConformance = undefined;
+    this.activeTreeConformances.clear();
   }
 
-  public showMergedTreeConformance() {
-    this.activeTreeConformance = null;
-    this.processTreeService.currentDisplayedProcessTree =
-      this.mergedTreeConformance;
-    this.modelViewModeService.viewMode = ViewMode.CONFORMANCE;
+  private stopRunningRequest() {
+    this.latestRequest?.unsubscribe();
+    this.calculationInProgress.clear();
   }
 
-  public deleteAllTreeConformances() {
-    this.updateTreeConformance([], Array.from(this.availableTreeConformances));
+  public toggleTreeConformance() {
+    if (this.anyTreeConformanceActive()) this.hideTreeConformance();
+    else this.showTreeConformance();
   }
 
-  public toggleMergedTreeConformance() {
-    if (this.isMergedTreeConformanceActive()) this.unselectTreeConformance();
-    else this.showMergedTreeConformance();
+  public addToTreeConformance(variant: Variant) {
+    if (
+      !this.activeTreeConformances.has(variant) &&
+      !this.calculationInProgress.has(variant)
+    ) {
+      this.calculationInProgress.add(variant);
+      const variantsCombined: Variant[] = Array.from(
+        new Set([...this.activeTreeConformances, ...this.calculationInProgress])
+      );
+      this.updateTreeConformance(Array.from(variantsCombined));
+    } else {
+      this.showTreeConformance();
+    }
+  }
+
+  public removeFromTreeConformance(variant: Variant) {
+    const wasActive = this.activeTreeConformances.delete(variant);
+    const wasInProgress = this.calculationInProgress.delete(variant);
+    if (wasActive || wasInProgress) {
+      if (this.activeTreeConformances.size == 0) this.hideTreeConformance();
+      else {
+        const variantsCombined: Variant[] = Array.from(
+          new Set([
+            ...this.activeTreeConformances,
+            ...this.calculationInProgress,
+          ])
+        );
+        this.updateTreeConformance(Array.from(variantsCombined));
+      }
+    }
   }
 }
 
