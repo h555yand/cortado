@@ -17,6 +17,10 @@ on:
             description: 'Build for Windows'
             required: true
             type: boolean
+        build-macos:
+            description: 'Build for MacOS'
+            required: false
+            type: boolean
 
 concurrency:
   group: "${{ github.ref }}#${{ github.workflow}}"
@@ -177,3 +181,74 @@ jobs:
           src/frontend/app-dist/${{env.WINDOWS_BUILD_NAME}}
           src/frontend/app-dist/*.exe
         if-no-files-found: error
+
+  build-backend-macos:
+    if: inputs.build-macos || github.event_name != 'workflow_dispatch'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: pip install -r <(grep -v -E 'cortado-core|cvxopt|pm4pycvxopt' requirements.txt)
+
+    - name: Install cortado-core
+      run: pip install git+https://github.com/cortado-tool/cortado-core@${{ github.ref_name == 'main' && 'main' || 'develop'  }}#egg=cortado_core
+
+    - name: Build with PyInstaller
+      run: python3 -O -m PyInstaller --noconfirm --clean cortado-backend-macos.spec
+
+    - name: Upload backend build
+      uses: actions/upload-artifact@v4
+      with:
+        name: cortado-backend-macos
+        path: src/backend/dist/cortado-backend
+        if-no-files-found: error
+
+
+  build-electron-macos:
+    if: inputs.build-macos || github.event_name != 'workflow_dispatch'
+    runs-on: macos-latest
+    needs: build-backend-macos
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Download backend build
+      uses: actions/download-artifact@v4
+      with:
+        name: cortado-backend-macos
+        path: src/backend/dist/cortado-backend/
+
+    - name: Make cortado-backend executable
+      run: chmod +x ../backend/dist/cortado-backend/cortado-backend
+
+    - name: Install dependencies
+      run: npm ci
+
+    - run: npm run build-prod
+    - run: npm run build-electron-macos
+
+    - name: Upload cortado build
+      uses: actions/upload-artifact@v4
+      with:
+        name: cortado-macos
+        path: src/frontend/app-dist/*.dmg
+        if-no-files-found: error
+
