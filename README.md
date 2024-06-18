@@ -85,15 +85,15 @@ After the successful execution of the build script, the build is located in `src
 
 ### Linting and Code Quality
 
-To maintain consistent code quality and formatting crucial, we have integrated GitLab's CI/CD pipeline along with npm scripts for linting and manual fixing of formatting errors.
+To maintain consistent code quality and formatting crucial, we have integrated Github Workflows along with npm scripts for linting and manual fixing of formatting errors.
 
-#### GitLab Pipeline
+#### Github Workflow
 
-Our GitLab pipeline plays a pivotal role in ensuring code quality. Whenever changes are pushed to the repository, the pipeline automatically triggers linting checks using various tools. We have separate stages within the pipeline to handle TypeScript, HTML, and SASS linting, as well as Python code formatting checks. If any issues are detected, the pipeline provides prompt feedback, helping contributors address the problems early in the development cycle.
+Our Github Workflow plays a pivotal role in ensuring code quality. Whenever changes are pushed to the repository, the workflow automatically triggers linting checks using various tools. We have separate jobs within the workflow to handle TypeScript, HTML, and SASS linting, as well as Python code formatting checks. If any issues are detected, the workflow provides prompt feedback, helping contributors address the problems early in the development cycle.
 
 #### npm Scripts
 
-In addition to the automated pipeline, we have set up npm scripts that facilitate local development and manual checks for formatting errors.
+In addition to the automated workflow, we have set up npm scripts that facilitate local development and manual checks for formatting errors.
 
 - To perform comprehensive linting across TypeScript, HTML, and SASS files, use: `npm run lint`
 
