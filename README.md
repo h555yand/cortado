@@ -17,6 +17,9 @@
 
 **Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available from the GitHub Release Page.
 
+## Demo
+
+https://github.com/cortado-tool/cortado/assets/61526398/0b5b348a-c708-4049-8eea-81c5fc5feecb
 
 
 ## Repository Structure 
