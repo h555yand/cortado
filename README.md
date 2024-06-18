@@ -1,14 +1,21 @@
 # Cortado
 
+<img width="64" src="src/frontend/src/assets/icons/png/64x64.png" alt="Cortado Logo"/>
+
 **Cortado is a process mining tool dedicated for interactive/incremental process discovery.**
-The [website of Cortado](https://cortado.fit.fraunhofer.de) contains various information on Cortado, such as a functionality overview, screenshots, and a list of publications on algorithms implemented in Cortado. 
 
-**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available for download at the [website of Cortado](https://cortado.fit.fraunhofer.de).
+## Overview Functionality
 
-Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for important announcements.
+- Import event logs `.xes` and initial process models `.ptml`
+- Visually explore event logs with the variant explorer
+- Discover initial process models from user-selected process behavior
+- Incrementally extend process models by user-selected process behavior
+- Manually edit process models under construction any time
+- Export discovered process models as `.ptml` or `.pnml` files
+- Temporal performance analysis, both model-based and model-independent
 
-![Screenshot of Cortado](https://cortado.fit.fraunhofer.de/assets/cortado-screenshot.png "Screenshot of Cortado")
 
+**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available from the GitHub Release Page.
 
 
 
@@ -129,6 +136,6 @@ DOI
 
 ## Contact
 
-If you are interested in Cortado, get in touch if you have any questions or custom request via [Mail - daniel.schuster@fit.fraunhofer.de](mailto:daniel.schuster@fit.fraunhofer.de)
+If you are interested in Cortado, get in touch if you have any questions or custom request via Mail - [daniel.schuster@fit.fraunhofer.de](mailto:daniel.schuster@fit.fraunhofer.de)
 
 
