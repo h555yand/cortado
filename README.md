@@ -95,6 +95,23 @@ In addition to the automated pipeline, we have set up npm scripts that facilitat
 
 These tools and scripts are designed to streamline the development process, ensuring that our codebase remains clean, consistent, and of high quality. Before submitting your contributions, make sure to run these checks locally and address any issues to facilitate smoother code reviews and integration.
 
+## Relevant Publications for Cortado
+
+| Publication                                                                                                                        | Authors                                                             | Year |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---- |
+| [Defining and visualizing process execution variants from partially ordered event data](https://doi.org/10.1016/j.ins.2023.119958) | Schuster, D., Zerbato, F., van Zelst, S.J., van der Aalst, W.M.P.   | 2024 |
+| [Incremental Discovery of Process Models Using Trace Fragments](https://doi.org/10.1007/978-3-031-41620-0_4)                       | Schuster, D., Föcking, N., van Zelst, S.J., van der Aalst, W.M.P.   | 2023 |
+| [Mining Frequent Infix Patterns from Concurrency-Aware Process Execution Variant](https://doi.org/10.14778/3603581.3603603)        | Martini, M., Schuster, D., Wil M. P. van der Aalst                  | 2023 |
+| [Cortado: A dedicated process mining tool for interactive process discovery](https://doi.org/10.1016/j.softx.2023.101373)          | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2023 |
+| [Control-Flow-Based Querying of Process Executions from Partially Ordered Event Data](https://doi.org/10.1007/978-3-031-20984-0_2) | Schuster, D., Martini, M., van Zelst, S.J., van der Aalst, W.M.P.   | 2022 |
+| [Conformance Checking for Trace Fragments Using Infix and Postfix Alignments](https://doi.org/10.1007/978-3-031-17834-4_18)        | Schuster, D., Föcking, N., van Zelst, S.J., van der Aalst, W.M.P.   | 2022 |
+| [Temporal Performance Analysis for Block-Structured Process Models in Cortado](https://doi.org/10.1007/978-3-031-07481-3_13)       | Schuster, D., Schade, L., van Zelst, S.J., van der Aalst, W.M.P.    | 2022 |
+| [A Generic Trace Ordering Framework for Incremental Process Discovery](https://doi.org/10.1007/978-3-031-01333-1_21)               | Schuster, D., Domnitsch, E., van Zelst, S.J., van der Aalst, W.M.P. | 2022 |
+| [Freezing Sub-models During Incremental Process Discovery](https://doi.org/10.1007/978-3-030-89022-3_2)                            | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2021 |
+| [Visualizing Trace Variants from Partially Ordered Event Data](https://doi.org/10.1007/978-3-030-98581-3_3)                        | Schuster, D., Schade, L., van Zelst, S.J., van der Aalst, W.M.P.    | 2021 |
+| [Cortado—An Interactive Tool for Data-Driven Process Discovery and Modeling](https://doi.org/10.1007/978-3-030-76983-3_23)         | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2021 |
+| [Incremental Discovery of Hierarchical Process Models](https://doi.org/10.1007/978-3-030-50316-1_25)                               | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2020 |
+
 ## Citing Cortado
 
 If you are using or referencing Cortado in scientific work, please cite Cortado as follows.
