@@ -1,5 +1,7 @@
 import os.path
 import pickle
+import random
+import string
 from collections import Counter, defaultdict
 from typing import List, Mapping, Set, Tuple
 
@@ -20,14 +22,12 @@ from pm4py.objects.log.obj import EventLog, Trace
 from pm4py.util.xes_constants import DEFAULT_NAME_KEY
 from cortado_core.utils.cvariants import ACTIVITY_INSTANCE_KEY
 
-from api.routes.variants.variants import VariantInformation
-from endpoints.alignments import InfixType
 from endpoints.load_event_log import compute_log_stats, create_variant_object
 
 
 def cache_current_data():
-    if not os.path.isdir('./tmp'):
-        os.mkdir('./tmp')
+    if not os.path.isdir("./tmp"):
+        os.mkdir("./tmp")
 
     pickle.dump(cache.parameters, open("tmp/parameters_cache.p", "wb"))
     pickle.dump(cache.variants, open("tmp/variants_cache.p", "wb"))
@@ -41,7 +41,7 @@ def reset_last_transaction():
     res_variants = []
 
     for bid, (v, ts, sv, info) in cache.variants.items():
-
+        # Default value of clusterId in a variant = -1
         variant = {
             "count": len(ts),
             "variant": v.serialize(),
@@ -51,13 +51,14 @@ def reset_last_transaction():
             "percentage": round(len(ts) / total_traces * 100, 2),
             "nSubVariants": len(sv),
             "userDefined": info.is_user_defined,
-            "infixType": info.infix_type.value
+            "infixType": info.infix_type.value,
+            "clusterId": -1,
         }
 
         # If the variant is only a single activity leaf, wrap it up as a sequence
         if (
-                "leaf" in variant["variant"].keys()
-                or "parallel" in variant["variant"].keys()
+            "leaf" in variant["variant"].keys()
+            or "parallel" in variant["variant"].keys()
         ):
             variant["variant"] = {"follows": [variant["variant"]]}
 
@@ -85,7 +86,7 @@ def reset_last_transaction():
 
 
 def rename_merge_activities_in_graph(
-        graph: ConcurrencyGroup, oldActivityName, newActivityName
+    graph: ConcurrencyGroup, oldActivityName, newActivityName
 ):
     graph.events[newActivityName] = graph.events.pop(oldActivityName, set()).union(
         graph.events.get(oldActivityName, set())
@@ -100,16 +101,13 @@ def rename_merge_activities_in_graph(
     new_df = {}
 
     for x, y in graph.directly_follows:
-
         if x != oldActivityName and y != oldActivityName:
             new_df[(x, y)] = new_df.get((x, y), set()).union(
                 graph.directly_follows.get((x, y))
             )
 
         else:
-
             if x == oldActivityName and y == oldActivityName:
-
                 new_df[(newActivityName, newActivityName)] = graph.directly_follows.get(
                     (x, y)
                 ).union(
@@ -119,13 +117,11 @@ def rename_merge_activities_in_graph(
                 )
 
             elif x == oldActivityName:
-
                 new_df[(newActivityName, y)] = graph.directly_follows.get((x, y)).union(
                     graph.directly_follows.get((newActivityName, y), set())
                 )
 
             elif y == oldActivityName:
-
                 new_df[(x, newActivityName)] = graph.directly_follows.get((x, y)).union(
                     graph.directly_follows.get((x, newActivityName), set())
                 )
@@ -135,12 +131,10 @@ def rename_merge_activities_in_graph(
     new_ef = {}
 
     for x, y in graph.follows:
-
         if x != oldActivityName and y != oldActivityName:
             new_ef[(x, y)] = new_ef.get((x, y), set()).union(graph.follows.get((x, y)))
 
         else:
-
             if x == oldActivityName and y == oldActivityName:
                 new_ef[(newActivityName, newActivityName)] = graph.follows.get(
                     (x, y)
@@ -161,14 +155,12 @@ def rename_merge_activities_in_graph(
     new_cc = {}
 
     for x, y in graph.concurrency_pairs:
-
         if x != oldActivityName and y != oldActivityName:
             new_cc[(x, y)] = new_cc.get((x, y), set()).union(
                 graph.concurrency_pairs.get((x, y))
             )
 
         else:
-
             if x == oldActivityName and y == oldActivityName:
                 pair = (newActivityName, newActivityName)
 
@@ -196,13 +188,12 @@ def rename_merge_activities_in_graph(
 
 
 def rename_activities_in_trace(
-        trace, oldActivityName, newActivityName, instanceDict=None
+    trace, oldActivityName, newActivityName, instanceDict=None
 ):
     if not instanceDict:
         instanceDict = __get_instance_dict(trace, oldActivityName, newActivityName)
 
     for event in trace:
-
         if event[DEFAULT_NAME_KEY] == newActivityName:
             event[ACTIVITY_INSTANCE_KEY] = instanceDict[
                 event[DEFAULT_NAME_KEY], event[ACTIVITY_INSTANCE_KEY]
@@ -249,7 +240,6 @@ def __get_instance_dict(trace, activityName, newActivityName):
     newInstance = 0
 
     for e in trace:
-
         if e["concept:name"] == activityName:
             instanceDict[(activityName, actInstance)] = nInstances
             actInstance += 1
@@ -267,17 +257,14 @@ def rename_activites_in_subvariant(subvariants, activityName, newActivityName):
     new_subvariants = defaultdict(list)
 
     for sv, ts in subvariants.items():
-
         new_variant = []
 
         instanceDict = __get_instance_dict(ts[0], activityName, newActivityName)
 
         for node in sv:
-
             node: Tuple[SubvariantNode]
 
             for svNode in node:
-
                 if svNode.activity == newActivityName:
                     svNode.activity_instance = instanceDict[
                         (svNode.activity, svNode.activity_instance)
@@ -337,7 +324,7 @@ def rename_activities(mergeList, renameList, activityName, newActivityName):
 
 
 def handle_rename_merge_variants(
-        mergeList, activityName, newActivityName, new_variant_dict, update_res_variants
+    mergeList, activityName, newActivityName, new_variant_dict, update_res_variants
 ):
     for ls in mergeList:
         (variant, _, _, info) = cache.variants[ls[0]]
@@ -367,7 +354,9 @@ def handle_rename_merge_variants(
             if info.is_user_defined:
                 new_sv = dict()
             else:
-                new_sv = rename_activites_in_subvariant(sv, activityName, newActivityName)
+                new_sv = rename_activites_in_subvariant(
+                    sv, activityName, newActivityName
+                )
 
             renamed_traces += [
                 rename_activities_in_trace(trace, activityName, newActivityName)
@@ -381,7 +370,7 @@ def handle_rename_merge_variants(
             renamed_variant,
             renamed_traces,
             renamed_subvariants,
-            info
+            info,
         )
 
         update_res_variants[min(ls)] = {"nSubVariants": len(renamed_subvariants.keys())}
@@ -390,7 +379,7 @@ def handle_rename_merge_variants(
 
 
 def handle_rename_single_variant(
-        renameList, activityName, newActivityName, new_variant_dict, update_res_variants
+    renameList, activityName, newActivityName, new_variant_dict, update_res_variants
 ):
     for bid in renameList:
         (variant, traces, subvariants, info) = cache.variants[bid]
@@ -423,45 +412,60 @@ def handle_rename_single_variant(
         ]
 
         update_res_variants[bid] = {"nSubVariants": len(renamed_subvariants.keys())}
-        new_variant_dict[bid] = (renamed_variant, renamed_traces, renamed_subvariants, info)
+        new_variant_dict[bid] = (
+            renamed_variant,
+            renamed_traces,
+            renamed_subvariants,
+            info,
+        )
 
     return new_variant_dict, update_res_variants
 
 
 def remove_activity_from_trace(trace, activityName):
     for event in trace:
-
         if event[DEFAULT_NAME_KEY] == activityName:
             del event
 
     return trace
 
 
-def remove_activitiy_from_group(group, activity_name):
-    if isinstance(group, LeafGroup):
-        lst = group[:]
-        if activity_name in group and len(group) == 1:
+def random_activity(curr_name: str, length=4):
+    letters = string.ascii_lowercase
+    # joining with the current name to retain the order of acts
+    return curr_name + "".join(random.choice(letters) for _ in range(length))
 
+
+def remove_activitiy_from_group(
+    group, activity_names: list[str] | str, replace_with_random=False
+):
+    if isinstance(group, LeafGroup):
+        if isinstance(activity_names, str):
+            activity_names = [activity_names]
+
+        if replace_with_random:
+            group_minus = [
+                random_activity(act) if act in activity_names else act for act in group
+            ]
+        else:
+            group_minus = [act for act in group if act not in activity_names]
+
+        if len(group_minus) == 0:
             return None
 
-        elif activity_name in group and len(group) > 1:
-            lst.remove(activity_name)
-
-        return LeafGroup(lst)
+        return LeafGroup(group_minus)
 
     else:
-
         children = [
-            remove_activitiy_from_group(child, activity_name) for child in group
+            remove_activitiy_from_group(child, activity_names, replace_with_random)
+            for child in group
         ]
         children = [child for child in children if child]
 
         tmp = []
 
         for child in children:
-
             if type(child) == type(group):
-
                 for cchild in child:
                     tmp.append(cchild)
 
@@ -471,9 +475,10 @@ def remove_activitiy_from_group(group, activity_name):
         children = tmp
 
         if len(children) > 1:
-
             if isinstance(group, ParallelGroup):
-                return ParallelGroup(sorted(children))
+                return ParallelGroup(
+                    children if replace_with_random else sorted(children)
+                )  # to retain the order of acts
 
             else:
                 return SequenceGroup(children)
@@ -482,7 +487,6 @@ def remove_activitiy_from_group(group, activity_name):
             return children[0]
 
         else:
-
             return None
 
 
@@ -512,7 +516,6 @@ def apply_filter_copy(trace, activityName):
 
     ctrace = Trace(attributes=new_attributes)
     for ev in trace._list:
-
         if ev[DEFAULT_NAME_KEY] != activityName:
             ctrace.append(ev)
 
@@ -522,7 +525,6 @@ def apply_filter_copy(trace, activityName):
 def remove_activitiy_from_subvariant(subvariants, activityName):
     new_subvariants = defaultdict(list)
     for sv, ts in subvariants.items():
-
         new_variant = []
 
         for node in sv:
@@ -540,7 +542,7 @@ def remove_activitiy_from_subvariant(subvariants, activityName):
 
 
 def remove_activities(
-        activityName, fallthrough, delete_member_list, merge_list, delete_variant_list
+    activityName, fallthrough, delete_member_list, merge_list, delete_variant_list
 ):
     new_variants: Mapping[int, Tuple[ConcurrencyGroup, List]] = {}
     update_res_variants = {}
@@ -570,6 +572,9 @@ def remove_activities(
     new_variants, new_res_variants, update_res_variants = handle_fallthrough(
         activityName, fallthrough, new_variants, update_res_variants
     )
+
+    for _, v in new_variants.items():
+        v[0].assign_dfs_ids()
 
     start_activities, end_activities, _ = compute_log_stats(new_variants)
 
@@ -624,7 +629,7 @@ def handle_merge_members(activityName, merge_list, new_variants, update_res_vari
 
 
 def handle_delete_member(
-        activityName, delete_member_list, new_variants, update_res_variants
+    activityName, delete_member_list, new_variants, update_res_variants
 ):
     for bid in delete_member_list:
         variant, traces, subvariants, info = cache.variants[bid]
@@ -709,7 +714,9 @@ def handle_fallthrough(activityName, fallthrough, new_variants, update_res_varia
 
 def remove_variant(bids):
     cache.variants = {
-        bid: (v, t, sv, info) for bid, (v, t, sv, info) in cache.variants.items() if bid not in bids
+        bid: (v, t, sv, info)
+        for bid, (v, t, sv, info) in cache.variants.items()
+        if bid not in bids
     }
 
     start_activities, end_activities, nActivities = compute_log_stats(cache.variants)

@@ -11,13 +11,15 @@ import {
   markNodeAsFrozen,
   markNodeAsNonFrozen,
 } from 'src/app/objects/ProcessTree/utility-functions/process-tree-freeze';
-import { checkForLoadedTreeIntegrity } from 'src/app/objects/ProcessTree/utility-functions/process-tree-integrity-check';
+import {
+  checkForLoadedTreeIntegrity,
+  processTreesEqual,
+} from 'src/app/objects/ProcessTree/utility-functions/process-tree-integrity-check';
 import {
   renameProcessTreeLeafs,
   getSetOfActivitiesInProcessTree,
 } from 'src/app/objects/ProcessTree/utility-functions/process-tree-transform';
 import {
-  NodeSeletionStrategy,
   delete_subtree,
   NodeInsertionStrategy,
   createNewRandomNode,
@@ -120,22 +122,6 @@ export class ProcessTreeService {
     this._selectedTree.next(pt);
   }
 
-  private _selectionMode = new BehaviorSubject<NodeSeletionStrategy>(
-    NodeSeletionStrategy.TREE
-  );
-
-  get selectionMode$(): Observable<any> {
-    return this._selectionMode.asObservable();
-  }
-
-  get selectionMode(): any {
-    return this._selectionMode.getValue();
-  }
-
-  set selectionMode(strategy: NodeSeletionStrategy) {
-    this._selectionMode.next(strategy);
-  }
-
   private _currentDisplayedProcessTree = new BehaviorSubject<ProcessTree>(null);
 
   get currentDisplayedProcessTree$(): Observable<ProcessTree> {
@@ -149,6 +135,12 @@ export class ProcessTreeService {
   private _activitiesInCurrentTree = new BehaviorSubject<Set<string>>(
     new Set<string>()
   );
+
+  private processTreeBuffer = new BehaviorSubject<ProcessTree>(null);
+
+  get bufferedProcessTree() {
+    return this.processTreeBuffer.getValue();
+  }
 
   public deleteActivityFromProcessTreeActivities(activityName: string): any {
     if (this.activitiesInCurrentTree) {
@@ -232,10 +224,17 @@ export class ProcessTreeService {
     }
     this._currentDisplayedProcessTree.next(tree);
     this.activitiesInCurrentTree = getSetOfActivitiesInProcessTree(tree);
+
+    // add activities in the tree to nodeWidthCache in processTreeService
+    this.nodeWidthCache = computeLeafNodeWidth(
+      Array.from(this.activitiesInCurrentTree),
+      this.nodeWidthCache
+    );
+
     this.cacheCurrentTree(tree);
   }
 
-  private previousTreeObjects: ProcessTree[] = [];
+  previousTreeObjects: ProcessTree[] = [];
 
   private _treeCacheLength = new BehaviorSubject<number>(0);
   private _treeCacheIndex = new BehaviorSubject<number>(0);
@@ -265,6 +264,8 @@ export class ProcessTreeService {
   }
 
   cacheCurrentTree(root: ProcessTree): void {
+    if (processTreesEqual(root, this.previousTreeObjects[this.treeCacheIndex]))
+      return;
     if (this.treeCacheIndex < this.previousTreeObjects.length - 1) {
       // before change, undo was pressed --> remove newer versions since older version of process tree was changed
       this.previousTreeObjects = this.previousTreeObjects.slice(
@@ -273,11 +274,21 @@ export class ProcessTreeService {
       );
     }
 
+    const lastTreeObject =
+      this.previousTreeObjects[this.previousTreeObjects.length - 1];
+
     if (root) {
-      this.previousTreeObjects.push(root.copy(true));
+      if (lastTreeObject !== null) {
+        this.previousTreeObjects.push(root.copy(true));
+      } else {
+        this.previousTreeObjects[this.previousTreeObjects.length - 1] =
+          root.copy(true);
+        this.treeCacheIndex--;
+      }
     } else {
       this.previousTreeObjects.push(null);
     }
+
     if (this.treeCacheIndex) {
       this.treeCacheIndex += 1;
     } else {
@@ -285,6 +296,30 @@ export class ProcessTreeService {
     }
 
     this.treeCacheLength = this.previousTreeObjects.length;
+  }
+
+  getFrozenList(previousTree) {
+    let frozen_list = [];
+    if (previousTree.frozen) {
+      frozen_list.push(previousTree.id);
+    }
+    for (const child of previousTree.children) {
+      frozen_list = frozen_list.concat(this.getFrozenList(child));
+    }
+    return frozen_list;
+  }
+
+  getFrozenTree(treeToLoad, previousTree) {
+    let frozen_list = this.getFrozenList(previousTree);
+    var nodesToCheck = [];
+    nodesToCheck.push(treeToLoad);
+    while (nodesToCheck.length > 0) {
+      let nodeToCheck = nodesToCheck.pop();
+      if (frozen_list.includes(nodeToCheck.id)) {
+        markNodeAsFrozen(nodeToCheck);
+      }
+      nodesToCheck = nodesToCheck.concat(nodeToCheck.children);
+    }
   }
 
   undo() {
@@ -295,7 +330,14 @@ export class ProcessTreeService {
     ) {
       this.treeCacheIndex--;
 
-      let treeToLoad = this.previousTreeObjects[this.treeCacheIndex];
+      let treeToLoad = null;
+      if (this.previousTreeObjects[this.treeCacheIndex]) {
+        treeToLoad = this.previousTreeObjects[this.treeCacheIndex].copy();
+        this.getFrozenTree(
+          treeToLoad,
+          this.previousTreeObjects[this.treeCacheIndex + 1]
+        );
+      }
 
       this.selectedRootNodeID = null;
       this.currentDisplayedProcessTree = treeToLoad;
@@ -305,12 +347,26 @@ export class ProcessTreeService {
   redo() {
     if (this.treeCacheIndex < this.previousTreeObjects.length - 1) {
       this.treeCacheIndex++;
-      let treeToLoad = this.previousTreeObjects[this.treeCacheIndex];
+
+      let treeToLoad = null;
+      if (this.previousTreeObjects[this.treeCacheIndex]) {
+        treeToLoad = this.previousTreeObjects[this.treeCacheIndex].copy();
+        this.getFrozenTree(
+          treeToLoad,
+          this.previousTreeObjects[this.treeCacheIndex - 1]
+        );
+      }
 
       this.selectedRootNodeID = null;
 
       this.currentDisplayedProcessTree = treeToLoad;
     }
+  }
+
+  deleteTreeHistory() {
+    this.previousTreeObjects = [];
+    this.treeCacheIndex = 0;
+    this.treeCacheLength = 0;
   }
 
   freezeSubtree(node: ProcessTree) {
@@ -324,9 +380,28 @@ export class ProcessTreeService {
     this.selectedRootNodeID = null;
   }
 
-  shiftSubtreeToLeft(tree: ProcessTree): void {
-    this.cacheCurrentTree(this.currentDisplayedProcessTree);
+  shiftSubtreeUp(tree: ProcessTree): void {
+    if (tree.parent && tree.parent.parent) {
+      const siblings = tree.parent.children;
+      const idxInParentChildList = siblings.indexOf(tree);
 
+      const parentSiblings = tree.parent.parent.children;
+      const parentIdxInItsSiblingsList = parentSiblings.indexOf(tree.parent);
+
+      // Remove tree as child from old parent
+      siblings.splice(idxInParentChildList, 1);
+
+      // Add tree as sibling to old parent
+      tree.parent = tree.parent.parent;
+      parentSiblings.splice(parentIdxInItsSiblingsList + 1, 0, tree);
+
+      this.set_currentDisplayedProcessTree_with_Cache(
+        this.currentDisplayedProcessTree
+      );
+    }
+  }
+
+  shiftSubtreeToLeft(tree: ProcessTree): void {
     if (tree.parent) {
       const siblings = tree.parent.children;
       const idxInParentChildList = siblings.indexOf(tree);
@@ -336,14 +411,14 @@ export class ProcessTreeService {
         siblings[idxInParentChildList] = childToRight;
         siblings[idxInParentChildList - 1] = childToLeft;
 
-        this.currentDisplayedProcessTree = this.currentDisplayedProcessTree;
+        this.set_currentDisplayedProcessTree_with_Cache(
+          this.currentDisplayedProcessTree
+        );
       }
     }
   }
 
   shiftSubtreeToRight(tree: ProcessTree): void {
-    this.cacheCurrentTree(this.currentDisplayedProcessTree);
-
     if (tree.parent) {
       const siblings = tree.parent.children;
       const idxInParentChildList = siblings.indexOf(tree);
@@ -353,13 +428,15 @@ export class ProcessTreeService {
         siblings[idxInParentChildList + 1] = childToRight;
         siblings[idxInParentChildList] = childToLeft;
 
-        this.currentDisplayedProcessTree = this.currentDisplayedProcessTree;
+        this.set_currentDisplayedProcessTree_with_Cache(
+          this.currentDisplayedProcessTree
+        );
       }
     }
   }
 
   deleteSelected(tree_to_delete: ProcessTree) {
-    this.cacheCurrentTree(this.currentDisplayedProcessTree);
+    // this.cacheCurrentTree(this.currentDisplayedProcessTree);
     const newTree = this.currentDisplayedProcessTree;
 
     if (this.currentDisplayedProcessTree === tree_to_delete) {
@@ -379,19 +456,91 @@ export class ProcessTreeService {
     operator: ProcessTreeOperator,
     label: string
   ) {
-    let newNode: ProcessTree = createNewRandomNode(label, operator);
+    const newNode: ProcessTree = createNewRandomNode(label, operator);
+    //newNode.selected = true;
 
     if (this.currentDisplayedProcessTree) {
-      this.cacheCurrentTree(this.currentDisplayedProcessTree);
-
       insertNode(selectedNode, newNode, strat, operator, label);
 
-      this.currentDisplayedProcessTree = this.currentDisplayedProcessTree;
-      this.selectedRootNodeID = selectedNode.id;
+      if (!newNode.parent || selectedNode.parent == newNode) {
+        this.currentDisplayedProcessTree = newNode;
+      }
+      this.selectedRootNodeID = newNode.id;
+      //this.selectedRootNodeID = selectedNode.id; //edited
+      this.set_currentDisplayedProcessTree_with_Cache(
+        this.currentDisplayedProcessTree
+      );
     } else {
       // empty tree - just add a single node
       this.currentDisplayedProcessTree = newNode;
       this.selectedRootNodeID = newNode.id;
     }
+  }
+
+  copySubtreeToBuffer(processTree: ProcessTree) {
+    this.processTreeBuffer.next(processTree.copy());
+  }
+
+  pasteSubtreeFromBuffer(parentNode: ProcessTree) {
+    if (this.processTreeBuffer) {
+      const copiedTree = this.bufferedProcessTree.copy(true, true);
+      if (parentNode) {
+        if (parentNode.label)
+          throw new Error('Cannot insert children below activities.');
+
+        copiedTree.parent = parentNode;
+        parentNode.children.push(copiedTree);
+      } else {
+        this.currentDisplayedProcessTree = copiedTree;
+      }
+      this.set_currentDisplayedProcessTree_with_Cache(
+        this.currentDisplayedProcessTree
+      );
+    }
+  }
+
+  makeSubtreeOptional(processTree: ProcessTree) {
+    const choice = createNewRandomNode(null, ProcessTreeOperator.choice);
+    const tau = createNewRandomNode(ProcessTreeOperator.tau, null);
+
+    if (processTree.parent) {
+      const siblings = processTree.parent.children;
+      const idxInParentChildList = siblings.indexOf(processTree);
+
+      siblings.splice(idxInParentChildList, 1, choice);
+    } else {
+      this.currentDisplayedProcessTree = choice;
+    }
+
+    choice.parent = processTree.parent;
+    choice.children = [tau, processTree];
+    processTree.parent = choice;
+    tau.parent = choice;
+
+    this.set_currentDisplayedProcessTree_with_Cache(
+      this.currentDisplayedProcessTree
+    );
+  }
+
+  makeSubtreeRepeatable(processTree: ProcessTree) {
+    const loop = createNewRandomNode(null, ProcessTreeOperator.loop);
+    const tau = createNewRandomNode(ProcessTreeOperator.tau, null);
+
+    if (processTree.parent) {
+      const siblings = processTree.parent.children;
+      const idxInParentChildList = siblings.indexOf(processTree);
+
+      siblings.splice(idxInParentChildList, 1, loop);
+    } else {
+      this.currentDisplayedProcessTree = loop;
+    }
+    loop.parent = processTree.parent;
+    loop.children = [processTree, tau];
+    processTree.parent = loop;
+    tau.parent = loop;
+
+    this.set_currentDisplayedProcessTree_with_Cache(
+      this.currentDisplayedProcessTree
+    );
   }
 }

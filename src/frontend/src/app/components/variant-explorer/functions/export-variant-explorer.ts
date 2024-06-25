@@ -8,10 +8,12 @@ export function exportVariantDrawer() {
 
   this.svgRenderingInProgress = true;
 
-  const visibleComponents = this.variantDrawers;
+  const visibleComponents = this.variantVisualisations;
 
   // Collect the SVG and pass them to the SVG Service
-  visibleComponents.forEach((c) => svgs.push(c.getSVGGraphicElement()));
+  visibleComponents.forEach((c) =>
+    svgs.push(c.variantDrawer.getSVGGraphicElement())
+  );
 
   // Add Frequency and Percentage information to the SVG
   svgs = svgs.map((c, i) =>

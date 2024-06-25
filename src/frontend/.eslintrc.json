@@ -6,7 +6,8 @@
   "overrides": [
     {
       "files": [
-        "*.ts"
+        "*.ts",
+        "*.js"
       ],
       "parserOptions": {
         "project": [
@@ -63,7 +64,6 @@
       ],
       "rules": {}
     }
-
   ],
   "parserOptions": {
     "ecmaVersion": 2017,

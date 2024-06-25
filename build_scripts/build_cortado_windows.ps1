@@ -13,17 +13,12 @@ Write-Output "BUILD FRONTEND"
 cd ./../frontend
 npm install
 Remove-Item -Recurse ./app-dist/
-npm run electron-builder-app-production-windows
+npm run build-prod
+npm run build-electron-windows
 Get-Location
 
-Write-Output "COPY FILES"
-cd ./../backend/
-Remove-Item -Recurse ./../frontend/app-dist/win-unpacked/cortado-backend/
-New-Item -ItemType Directory -Path ./../frontend/app-dist/win-unpacked/cortado-backend/
-Copy-Item -Path ./dist/cortado-backend/* -Destination ./../frontend/app-dist/win-unpacked/cortado-backend/ -Recurse
-
 Write-Output "OPEN WINDOWS EXPLORER"
-Invoke-Item ./../frontend/app-dist/win-unpacked
+Invoke-Item ./../frontend/app-dist/
 
 Write-Output "RESET PATH"
 cd $originalPath

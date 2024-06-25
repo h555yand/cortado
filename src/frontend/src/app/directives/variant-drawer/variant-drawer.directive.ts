@@ -1,15 +1,16 @@
 import { VARIANT_Constants } from './../../constants/variant_element_drawer_constants';
 
 import {
+  AfterViewInit,
   Directive,
+  ElementRef,
   EventEmitter,
+  Input,
   OnChanges,
   OnDestroy,
   Output,
   SimpleChanges,
 } from '@angular/core';
-import { AfterViewInit, ElementRef } from '@angular/core';
-import { Input } from '@angular/core';
 import * as d3 from 'd3';
 import { Selection } from 'd3';
 import { PolygonGeneratorService } from 'src/app/services/polygon-generator.service';
@@ -20,13 +21,16 @@ import {
   SelectableState,
 } from 'src/app/objects/Variants/infix_selection';
 import {
-  VariantElement,
-  SequenceGroup,
-  ParallelGroup,
-  LeafNode,
-  WaitingTimeNode,
+  ChoiceGroup,
+  FallthroughGroup,
   InvisibleSequenceGroup,
+  LeafNode,
   LoopGroup,
+  ParallelGroup,
+  SequenceGroup,
+  SkipGroup,
+  VariantElement,
+  WaitingTimeNode,
 } from 'src/app/objects/Variants/variant_element';
 import { textColorForBackgroundColor } from 'src/app/utils/render-utils';
 import { ViewMode } from 'src/app/objects/ViewMode';
@@ -34,6 +38,8 @@ import { VariantViewModeService } from 'src/app/services/viewModeServices/varian
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { IVariant } from 'src/app/objects/Variants/variant_interface';
+import { ConformanceCheckingService } from 'src/app/services/conformanceChecking/conformance-checking.service';
+import { VariantService } from '../../services/variantService/variant.service';
 
 @Directive({
   selector: '[appVariantDrawer]',
@@ -49,10 +55,12 @@ export class VariantDrawerDirective
   }
 
   constructor(
-    elRef: ElementRef,
+    elRef: ElementRef<HTMLElement>,
     private polygonService: PolygonGeneratorService,
-    private sharedDataService: SharedDataService,
-    private variantViewModeService: VariantViewModeService
+    private sharedDataService: SharedDataService, //edited
+    private variantViewModeService: VariantViewModeService,
+    private conformanceCheckingService: ConformanceCheckingService,
+    private variantService: VariantService
   ) {
     this.svgHtmlElement = elRef;
   }
@@ -101,16 +109,22 @@ export class VariantDrawerDirective
   @Input()
   keepStandardView: boolean = false;
 
+  @Input()
+  addCursorPointer: boolean = true;
+
   @Output()
   selection = new EventEmitter<Selection<any, any, any, any>>();
+
+  @Output() redrawArcsIfComputed = new EventEmitter();
 
   svgSelection!: Selection<any, any, any, any>;
 
   private _destroy$ = new Subject();
 
   ngAfterViewInit(): void {
-    this.svgSelection = d3
-      .select(this.svgHtmlElement.nativeElement)
+    this.svgSelection = d3.select(this.svgHtmlElement.nativeElement);
+
+    this.svgSelection = this.svgSelection
       .append('g')
       .style('padding-top', '5px');
 
@@ -122,6 +136,8 @@ export class VariantDrawerDirective
         this.redraw();
         this.setInspectVariant();
       });
+
+    this.redrawArcsIfComputed.emit();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -151,7 +167,6 @@ export class VariantDrawerDirective
 
   redraw(): void {
     this.svgSelection.selectAll('*').remove();
-
     if (this.variant.variant) {
       const height = this.variant.variant.recalculateHeight(
         !this.keepStandardView &&
@@ -212,7 +227,6 @@ export class VariantDrawerDirective
 
     const PREFIX_OFFSET = 35;
     const POSTFIX_OFFSET = 25;
-    const PROPER_INFIX_OFFSET = 60;
 
     const svg = this.svgSelection;
     const variant_svg = svg
@@ -234,7 +248,7 @@ export class VariantDrawerDirective
         break;
 
       case InfixType.PROPER_INFIX:
-        width_offset = PROPER_INFIX_OFFSET;
+        width_offset = PREFIX_OFFSET + POSTFIX_OFFSET;
         break;
     }
 
@@ -289,12 +303,12 @@ export class VariantDrawerDirective
   ): void {
     svgElement.datum(element).classed('variant-element-group', true);
 
-    if (outerElement) {
-      svgElement.datum(element);
-    }
-
     if (element instanceof ParallelGroup) {
       this.drawParallelGroup(element.asParallelGroup(), svgElement);
+    } else if (element instanceof ChoiceGroup) {
+      this.drawChoiceGroup(element.asChoiceGroup(), svgElement);
+    } else if (element instanceof FallthroughGroup) {
+      this.drawFallthroughGroup(element.asFallthroughGroup(), svgElement);
     } else if (element instanceof SequenceGroup) {
       this.drawSequenceGroup(
         element.asSequenceGroup(),
@@ -307,6 +321,8 @@ export class VariantDrawerDirective
       this.drawWaitingNode(element.asLeafNode(), svgElement);
     } else if (element instanceof LoopGroup) {
       this.drawLoopGroup(element.asLoopGroup(), svgElement);
+    } else if (element instanceof SkipGroup) {
+      this.drawSkipGroup(element.asSkipGroup(), svgElement);
     }
   }
 
@@ -336,7 +352,7 @@ export class VariantDrawerDirective
 
     if (this.onClickCbFc) {
       parent.on('click', (e: PointerEvent) => {
-        this.onClickCbFc(this, loopGroup, this.variant);
+        this.onVariantClick(loopGroup);
         e.stopPropagation();
       });
     }
@@ -374,7 +390,7 @@ export class VariantDrawerDirective
       )
       .attr(
         'transform',
-        'translate(' + (width / 2 - 8) + ',' + VARIANT_Constants.MARGIN_Y + ')'
+        `translate(${width / 2 - 8}, ${VARIANT_Constants.MARGIN_Y})`
       );
 
     let label = leafNode.activity[0];
@@ -382,7 +398,10 @@ export class VariantDrawerDirective
       .append('tspan')
       .attr('x', width / 2)
       .attr('y', y + VARIANT_Constants.FONT_SIZE - VARIANT_Constants.MARGIN_Y)
-      .classed('cursor-pointer', !this.traceInfixSelectionMode || actionable)
+      .classed(
+        'cursor-pointer',
+        (!this.traceInfixSelectionMode || actionable) && this.addCursorPointer
+      )
       .text(label);
 
     const maxWidth =
@@ -405,10 +424,11 @@ export class VariantDrawerDirective
   drawSequenceGroup(
     element: SequenceGroup,
     parent: Selection<any, any, any, any>,
-    outerElement
+    outerElement: boolean
   ): void {
     const width = element.getWidth();
     const height = element.getHeight();
+
     const polygonPoints = this.polygonService.getPolygonPoints(width, height);
 
     const color = 'lightgrey';
@@ -434,25 +454,40 @@ export class VariantDrawerDirective
       this.addInfixSelectionAttributes(element, polygon, false);
     }
 
-    if (element instanceof InvisibleSequenceGroup) {
+    if (
+      element instanceof InvisibleSequenceGroup ||
+      element.parent instanceof SkipGroup
+    ) {
       polygon.style('fill', 'transparent');
     } else {
       if (this.onClickCbFc) {
         parent.on('click', (e: PointerEvent) => {
-          this.onClickCbFc(this, element, this.variant);
+          this.onVariantClick(element);
           e.stopPropagation();
         });
       }
     }
 
-    let x =
-      outerElement &&
-      (this.keepStandardView ||
-        this.variantViewModeService.viewMode !== ViewMode.PERFORMANCE)
-        ? 0
-        : element.getHeadLength() +
-          element.getMarginX() -
-          element.elements[0].getHeadLength();
+    let xOffset = 0;
+
+    const inEditor =
+      d3
+        .select(this.svgHtmlElement.nativeElement)
+        .classed('in-variant-modeler') ||
+      d3.select(this.svgHtmlElement.nativeElement).classed('pattern-variant');
+
+    if (
+      (!outerElement ||
+        inEditor ||
+        (!this.keepStandardView &&
+          this.variantViewModeService.viewMode === ViewMode.PERFORMANCE)) &&
+      !(element.parent instanceof SkipGroup)
+    ) {
+      xOffset +=
+        element.getHeadLength() +
+        element.getMarginX() -
+        element.elements[0].getHeadLength();
+    }
 
     for (const child of element.elements) {
       if (
@@ -463,16 +498,18 @@ export class VariantDrawerDirective
         continue;
       }
 
-      const width = child.getWidth(
+      const childWidth = child.getWidth(
         !this.keepStandardView &&
           this.variantViewModeService.viewMode === ViewMode.PERFORMANCE
       );
       const childHeight = child.getHeight();
-      const y = height / 2 - childHeight / 2;
-      const g = parent.append('g').attr('transform', `translate(${x}, ${y})`);
+      const yOffset = height / 2 - childHeight / 2;
+      const g = parent
+        .append('g')
+        .attr('transform', `translate(${xOffset}, ${yOffset})`);
 
       this.draw(child, g, false);
-      x += width;
+      xOffset += childWidth;
     }
 
     if (this.onMouseOverCbFc) {
@@ -519,7 +556,212 @@ export class VariantDrawerDirective
 
     if (this.onClickCbFc) {
       parent.on('click', (e: PointerEvent) => {
-        this.onClickCbFc(this, element, this.variant);
+        this.onVariantClick(element);
+        e.stopPropagation();
+      });
+    }
+
+    if (this.onRightMouseClickCbFc) {
+      parent.on('contextmenu', (e: PointerEvent) => {
+        this.onRightMouseClickCbFc(this, element, this.variant, e);
+        e.stopPropagation();
+      });
+    }
+
+    let y = VARIANT_Constants.MARGIN_Y;
+
+    for (const child of element.elements) {
+      if (
+        child instanceof WaitingTimeNode &&
+        (this.keepStandardView ||
+          this.variantViewModeService.viewMode !== ViewMode.PERFORMANCE)
+      ) {
+        continue;
+      }
+
+      const height = child.getHeight();
+      const x = element.getHeadLength() + 0.5 * VARIANT_Constants.MARGIN_X;
+      const g = parent.append('g').attr('transform', `translate(${x}, ${y})`);
+      this.draw(child, g, false);
+      y += height + VARIANT_Constants.MARGIN_Y;
+    }
+
+    if (this.onMouseOverCbFc) {
+      this.onMouseOverCbFc(this, element, this.variant, parent);
+    }
+  }
+
+  drawChoiceGroup(
+    element: ChoiceGroup,
+    parent: Selection<any, any, any, any>
+  ): void {
+    const width = element.getWidth();
+    const height = element.getHeight();
+
+    const polygonPoints = this.polygonService.getPolygonPoints(width, height);
+
+    let laElement = getLowestSelectionActionableElement(element);
+    let actionable =
+      laElement.parent !== null &&
+      laElement.infixSelectableState !== SelectableState.None;
+
+    const color = 'lightgrey';
+    let polygon = this.createPolygon(
+      parent,
+      polygonPoints,
+      color,
+      actionable,
+      true
+    );
+
+    if (
+      this.traceInfixSelectionMode &&
+      !(element instanceof InvisibleSequenceGroup)
+    ) {
+      this.addInfixSelectionAttributes(element, polygon, false);
+    }
+
+    if (this.onClickCbFc) {
+      parent.on('click', (e: PointerEvent) => {
+        this.onVariantClick(element);
+        e.stopPropagation();
+      });
+    }
+
+    if (this.onRightMouseClickCbFc) {
+      parent.on('contextmenu', (e: PointerEvent) => {
+        this.onRightMouseClickCbFc(this, element, this.variant, e);
+        e.stopPropagation();
+      });
+    }
+
+    let y = VARIANT_Constants.MARGIN_Y;
+
+    //edited
+    const textcolor = textColorForBackgroundColor(
+      color,
+      this.traceInfixSelectionMode && !element.selected
+    );
+
+    const v_height = element.getHeight();
+    const v_width = element.getWidth();
+
+    const activityText = parent
+      .append('text')
+      .attr('x', v_width / 2)
+      .attr('y', v_height / 2)
+      .classed('user-select-none', true)
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'middle')
+      .attr(
+        'font-size',
+        (VARIANT_Constants.LEAF_HEIGHT + VARIANT_Constants.MARGIN_Y) *
+          element.elements.length +
+          VARIANT_Constants.MARGIN_Y
+      )
+      .attr('font-weight', 300)
+      .attr('fill', textcolor)
+      .classed('activity-text', true);
+
+    const tspan_infront = activityText
+      .append('tspan')
+      .attr(
+        'x',
+        element.getHeadLength() +
+          0.5 *
+            (((VARIANT_Constants.LEAF_HEIGHT + VARIANT_Constants.MARGIN_Y) *
+              element.elements.length +
+              VARIANT_Constants.MARGIN_Y) /
+              2.8) +
+          0.5 * VARIANT_Constants.MARGIN_X
+      )
+      .attr('y', v_height / 2)
+      .classed(
+        'cursor-pointer',
+        (!this.traceInfixSelectionMode || actionable) && this.addCursorPointer
+      )
+      .text('{');
+
+    for (const child of element.elements) {
+      if (
+        child instanceof WaitingTimeNode &&
+        (this.keepStandardView ||
+          this.variantViewModeService.viewMode !== ViewMode.PERFORMANCE)
+      ) {
+        continue;
+      }
+
+      const height = child.getHeight();
+      const x =
+        element.getHeadLength() +
+        0.5 * VARIANT_Constants.MARGIN_X +
+        ((VARIANT_Constants.LEAF_HEIGHT + VARIANT_Constants.MARGIN_Y) *
+          element.elements.length +
+          VARIANT_Constants.MARGIN_Y) /
+          2.8;
+      const g = parent.append('g').attr('transform', `translate(${x}, ${y})`);
+      this.draw(child, g, false);
+      y += height + VARIANT_Constants.MARGIN_Y;
+    }
+
+    const tspan_behind = activityText
+      .append('tspan')
+      .attr(
+        'x',
+        element.getWidth() -
+          element.getHeadLength() -
+          0.5 * VARIANT_Constants.MARGIN_X -
+          0.5 *
+            (((VARIANT_Constants.LEAF_HEIGHT + VARIANT_Constants.MARGIN_Y) *
+              element.elements.length +
+              VARIANT_Constants.MARGIN_Y) /
+              2.8)
+      )
+      .attr('y', v_height / 2)
+      .classed(
+        'cursor-pointer',
+        (!this.traceInfixSelectionMode || actionable) && this.addCursorPointer
+      )
+      .text('}');
+
+    if (this.onMouseOverCbFc) {
+      this.onMouseOverCbFc(this, element, this.variant, parent);
+    }
+  }
+
+  drawFallthroughGroup(
+    element: FallthroughGroup,
+    parent: Selection<any, any, any, any>
+  ): void {
+    const width = element.getWidth();
+    const height = element.getHeight();
+
+    const polygonPoints = this.polygonService.getPolygonPoints(width, height);
+
+    let laElement = getLowestSelectionActionableElement(element);
+    let actionable =
+      laElement.parent !== null &&
+      laElement.infixSelectableState !== SelectableState.None;
+
+    const color = 'lightgrey';
+    let polygon = this.createFallthroughPolygon(
+      parent,
+      polygonPoints,
+      color,
+      actionable,
+      true
+    );
+
+    if (
+      this.traceInfixSelectionMode &&
+      !(element instanceof InvisibleSequenceGroup)
+    ) {
+      this.addInfixSelectionAttributes(element, polygon, false);
+    }
+
+    if (this.onClickCbFc) {
+      parent.on('click', (e: PointerEvent) => {
+        this.onVariantClick(element);
         e.stopPropagation();
       });
     }
@@ -565,12 +807,33 @@ export class VariantDrawerDirective
       .append('polygon')
       .attr('points', polygonPoints)
       .style('fill', color)
-      .classed('cursor-pointer', !this.traceInfixSelectionMode || actionable);
+      .classed(
+        'cursor-pointer',
+        (!this.traceInfixSelectionMode || actionable) && this.addCursorPointer
+      );
 
     if (group) {
+      poly.classed('chevron-group', true);
       poly.style('fill-opacity', 0.5).style('stroke-width', 2);
     }
 
+    return poly;
+  }
+
+  private createFallthroughPolygon(
+    parent: d3.Selection<any, any, any, any>,
+    polygonPoints: string,
+    color: string,
+    actionable: boolean,
+    group = false
+  ) {
+    const poly = parent
+      .append('polygon')
+      .attr('points', polygonPoints)
+      .style('fill', color)
+      .classed('cursor-pointer', !this.traceInfixSelectionMode || actionable);
+    poly.classed('chevron-group', true);
+    poly.style('stroke-width', 2);
     return poly;
   }
 
@@ -580,17 +843,9 @@ export class VariantDrawerDirective
   ): void {
     const width = element.getWidth();
     let height = element.getHeight();
-
     const polygonPoints = this.polygonService.getPolygonPoints(width, height);
 
     const color = this.computeActivityColor(this, element, this.variant);
-
-    const rgb_code = [
-      color.substring(1, 3),
-      color.substring(3, 5),
-      color.substring(5, 7),
-    ];
-    const inversed = rgb_code.map((d) => 255 - parseInt(d, 16));
 
     let laElement = getLowestSelectionActionableElement(element);
 
@@ -598,17 +853,16 @@ export class VariantDrawerDirective
       laElement.parent !== null &&
       laElement.infixSelectableState !== SelectableState.None;
 
-    let polygon = this.createPolygon(parent, polygonPoints, color, actionable);
+    let polygon = this.createPolygon(
+      parent,
+      polygonPoints,
+      color,
+      actionable,
+      false
+    );
 
     if (this.traceInfixSelectionMode) {
       this.addInfixSelectionAttributes(element, polygon, true);
-    }
-
-    if (this.onClickCbFc) {
-      parent.on('click', (e: PointerEvent) => {
-        this.onClickCbFc(this, element, this.variant);
-        e.stopPropagation();
-      });
     }
 
     const textcolor = textColorForBackgroundColor(
@@ -637,12 +891,16 @@ export class VariantDrawerDirective
 
     let truncated = false;
     let dy = 0;
+
     element.activity.forEach((a, _i) => {
       const tspan = activityText
         .append('tspan')
         .attr('x', width / 2)
         .attr('y', y + dy)
-        .classed('cursor-pointer', !this.traceInfixSelectionMode || actionable)
+        .classed(
+          'cursor-pointer',
+          (!this.traceInfixSelectionMode || actionable) && this.addCursorPointer
+        )
         .text(a);
 
       dy += VARIANT_Constants.FONT_SIZE + VARIANT_Constants.MARGIN_Y;
@@ -655,7 +913,6 @@ export class VariantDrawerDirective
         element.getWidth() -
         element.getHeadLength() * 2 -
         VARIANT_Constants.MARGIN_X;
-
       const tr = this.wrapInnerLabelText(tspan, a, maxWidth);
       truncated ||= tr;
 
@@ -668,11 +925,33 @@ export class VariantDrawerDirective
       activityText
         .attr('title', element.activity.join(';'))
         .attr('data-bs-toggle', 'tooltip');
+      // manually trigger tooltip through jquery
+      activityText.on('mouseenter', (e: PointerEvent, data) => {
+        // @ts-ignore
+        this.variantService.activityTooltipReference = $(e.target);
+        this.variantService.activityTooltipReference.tooltip('show');
+      });
+    }
+
+    if (this.onClickCbFc) {
+      parent.on('click', (e: PointerEvent) => {
+        this.onVariantClick(element);
+        // hide the tooltip
+        if (this.variantService.activityTooltipReference) {
+          this.variantService.activityTooltipReference.tooltip('hide');
+        }
+        e.stopPropagation();
+      });
     }
 
     if (this.onMouseOverCbFc) {
       this.onMouseOverCbFc(this, element, this.variant, parent);
     }
+  }
+
+  onVariantClick(element: VariantElement) {
+    this.onClickCbFc(this, element, this.variant);
+    this.redrawArcsIfComputed.emit();
   }
 
   private addInfixSelectionAttributes(
@@ -726,7 +1005,7 @@ export class VariantDrawerDirective
 
     if (this.onClickCbFc) {
       parent.on('click', (e: PointerEvent) => {
-        this.onClickCbFc(this, element, this.variant);
+        this.onVariantClick(element);
         e.stopPropagation();
       });
     }
@@ -743,18 +1022,64 @@ export class VariantDrawerDirective
     }
   }
 
+  drawSkipGroup(
+    element: SequenceGroup,
+    parent: Selection<any, any, any, any>
+  ): void {
+    const height = element.getHeight();
+
+    let xOffset = 0;
+
+    element.elements.forEach((child, idx) => {
+      const childWidth = child.getWidth(
+        !this.keepStandardView &&
+          this.variantViewModeService.viewMode === ViewMode.PERFORMANCE
+      );
+      const childHeight = child.getHeight();
+      const yOffset = height / 2 - childHeight / 2;
+      const g = parent
+        .append('g')
+        .attr('transform', `translate(${xOffset}, ${yOffset})`);
+
+      this.draw(child, g, false);
+      xOffset += childWidth;
+
+      if (idx >= element.elements.length - 1) return;
+
+      const heightOffset =
+        (element.getHeight() - 2 * VARIANT_Constants.MARGIN_Y) / 2 - 7.65;
+      xOffset += VARIANT_Constants.SKIP_MARGIN;
+      parent
+        .append('g')
+        .attr('transform', `translate(${xOffset}, ${heightOffset})`)
+        .append('use')
+        .attr('href', '#infixDots')
+        .attr('transform', 'scale(1.7)');
+      xOffset += VARIANT_Constants.SKIP_WIDTH + VARIANT_Constants.SKIP_MARGIN;
+    });
+
+    if (this.onMouseOverCbFc) {
+      this.onMouseOverCbFc(this, element, this.variant, parent);
+    }
+  }
+
   private wrapInnerLabelText(
     textSelection: Selection<any, any, any, any>,
     text: string,
     maxWidth: number
   ): boolean {
     let textLength = this.getComputedTextLength(textSelection);
+    //let textLength = textSelection.node().getBoundingClientRect().width;
 
     let truncated = false;
     while (textLength > maxWidth && text.length > 1) {
       text = text.slice(0, -1);
+      if (text[text.length - 1] == ' ') {
+        text = text.slice(0, -1);
+      }
       textSelection.text(text + '..');
       textLength = this.getComputedTextLength(textSelection);
+      //textLength = textSelection.node().getBoundingClientRect().width;
       truncated = true;
     }
 
@@ -776,14 +1101,27 @@ export class VariantDrawerDirective
         textSelection.text()
       );
     } else {
-      textLength = textSelection.node().getComputedTextLength();
+      textLength = textSelection.node().getBoundingClientRect().width;
+      if (textLength == 0) {
+        textLength =
+          textSelection.text().length * VARIANT_Constants.CHAR_LENGTH;
+      }
     }
-    this.sharedDataService.computedTextLengthCache.set(
-      textSelection.text(),
-      textLength
-    );
+    if (textLength > 0) {
+      this.sharedDataService.computedTextLengthCache.set(
+        textSelection.text(),
+        textLength
+      );
+    }
+
     return textLength;
   }
+
+  /*
+  public resetCachedTextLength() {
+    this.sharedDataService.computedTextLengthCache = new Map<string, number>();
+    console.log('reset');
+  }*/
 
   getSVGGraphicElement(): SVGGraphicsElement {
     return this.svgHtmlElement.nativeElement;
@@ -798,12 +1136,14 @@ export class VariantDrawerDirective
     d3.selectAll('.variant-polygon').classed(
       'cursor-pointer',
       !this.keepStandardView &&
-        this.variantViewModeService.viewMode === ViewMode.PERFORMANCE
+        this.variantViewModeService.viewMode === ViewMode.PERFORMANCE &&
+        this.addCursorPointer
     );
     d3.selectAll('.activity-text').classed(
       'cursor-pointer',
       !this.keepStandardView &&
-        this.variantViewModeService.viewMode === ViewMode.PERFORMANCE
+        this.variantViewModeService.viewMode === ViewMode.PERFORMANCE &&
+        this.addCursorPointer
     );
   }
 

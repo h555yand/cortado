@@ -1,15 +1,28 @@
 # Cortado
 
-**Cortado is a process mining tool dedicated for interactive/incremental process discovery.**
-The [website of Cortado](https://cortado.fit.fraunhofer.de) contains various information on Cortado, such as a functionality overview, screenshots, and a list of publications on algorithms implemented in Cortado. 
+![lint workflow](https://github.com/cortado-tool/cortado/actions/workflows/lint.yml/badge.svg)
+![test workflow](https://github.com/cortado-tool/cortado/actions/workflows/test.yml/badge.svg)
 
-**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available for download at the [website of Cortado](https://cortado.fit.fraunhofer.de).
+<img width="64" src="src/frontend/src/assets/icons/png/64x64.png" alt="Cortado Logo"/>
 
-Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for important announcements.
+**Cortado is a process mining tool dedicated for interactive/incremental process discovery**
 
-![Screenshot of Cortado](https://cortado.fit.fraunhofer.de/assets/cortado-screenshot.png "Screenshot of Cortado")
+## Overview Functionality
+
+- Import event logs `.xes` and initial process models `.ptml`
+- Visually explore event logs with the variant explorer
+- Discover initial process models from user-selected process behavior
+- Incrementally extend process models by user-selected process behavior
+- Manually edit process models under construction any time
+- Export discovered process models as `.ptml` or `.pnml` files
+- Temporal performance analysis, both model-based and model-independent
 
 
+**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available from the GitHub Release Page.
+
+## Demo
+
+https://github.com/cortado-tool/cortado/assets/61526398/0b5b348a-c708-4049-8eea-81c5fc5feecb
 
 
 ## Repository Structure 
@@ -43,6 +56,7 @@ Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for impo
 ### Start Backend
 * Navigate to `src/backend/`
 * Execute `python main.py`
+* For dynamic reloading of source code files, set environment variable `CORTADO_DEBUG` to `1`
 ### Start Frontend 
 * In a Web-Browser
   * Navigate to `src/frontend/`
@@ -51,7 +65,7 @@ Follow [@cortado_tool](https://twitter.com/cortado_tool) on **Twitter** for impo
 * In a dedicated Window of the Current OS
   * Navigate to `src/frontend/`
   * Execute `npm start` to build & run Cortado's frontend
-  * Execute `electron-live-reload` that starts a window with Cortado
+  * Execute `npm run electron-live-reload` that starts a window with Cortado
 
 
 ## Build Cortado&mdash;Standalone Application
@@ -70,25 +84,64 @@ Thus, if you are building Cortado for Windows, you must run the corresponding sc
 
 After the successful execution of the build script, the build is located in `src/frontend/`
 
+## Contributing
+
+### Linting and Code Quality
+
+To maintain consistent code quality and formatting crucial, we have integrated Github Workflows along with npm scripts for linting and manual fixing of formatting errors.
+
+#### Github Workflow
+
+Our Github Workflow plays a pivotal role in ensuring code quality. Whenever changes are pushed to the repository, the workflow automatically triggers linting checks using various tools. We have separate jobs within the workflow to handle TypeScript, HTML, and SASS linting, as well as Python code formatting checks. If any issues are detected, the workflow provides prompt feedback, helping contributors address the problems early in the development cycle.
+
+#### npm Scripts
+
+In addition to the automated workflow, we have set up npm scripts that facilitate local development and manual checks for formatting errors.
+
+- To perform comprehensive linting across TypeScript, HTML, and SASS files, use: `npm run lint`
+
+- If linting issues are detected, you can initiate automatic fixes for TypeScript and SASS files using: `npm run lint-scripts-fix` and `npm run lint-styles-fix`
+
+- For HTML files, you can manually review and fix the issues identified by the linter.
+
+- We also support Python code formatting checks using the command: `black --check .`
+
+These tools and scripts are designed to streamline the development process, ensuring that our codebase remains clean, consistent, and of high quality. Before submitting your contributions, make sure to run these checks locally and address any issues to facilitate smoother code reviews and integration.
+
+## Relevant Publications for Cortado
+
+| Publication                                                                                                                        | Authors                                                             | Year |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---- |
+| [Defining and visualizing process execution variants from partially ordered event data](https://doi.org/10.1016/j.ins.2023.119958) | Schuster, D., Zerbato, F., van Zelst, S.J., van der Aalst, W.M.P.   | 2024 |
+| [Incremental Discovery of Process Models Using Trace Fragments](https://doi.org/10.1007/978-3-031-41620-0_4)                       | Schuster, D., Föcking, N., van Zelst, S.J., van der Aalst, W.M.P.   | 2023 |
+| [Mining Frequent Infix Patterns from Concurrency-Aware Process Execution Variant](https://doi.org/10.14778/3603581.3603603)        | Martini, M., Schuster, D., Wil M. P. van der Aalst                  | 2023 |
+| [Cortado: A dedicated process mining tool for interactive process discovery](https://doi.org/10.1016/j.softx.2023.101373)          | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2023 |
+| [Control-Flow-Based Querying of Process Executions from Partially Ordered Event Data](https://doi.org/10.1007/978-3-031-20984-0_2) | Schuster, D., Martini, M., van Zelst, S.J., van der Aalst, W.M.P.   | 2022 |
+| [Conformance Checking for Trace Fragments Using Infix and Postfix Alignments](https://doi.org/10.1007/978-3-031-17834-4_18)        | Schuster, D., Föcking, N., van Zelst, S.J., van der Aalst, W.M.P.   | 2022 |
+| [Temporal Performance Analysis for Block-Structured Process Models in Cortado](https://doi.org/10.1007/978-3-031-07481-3_13)       | Schuster, D., Schade, L., van Zelst, S.J., van der Aalst, W.M.P.    | 2022 |
+| [A Generic Trace Ordering Framework for Incremental Process Discovery](https://doi.org/10.1007/978-3-031-01333-1_21)               | Schuster, D., Domnitsch, E., van Zelst, S.J., van der Aalst, W.M.P. | 2022 |
+| [Freezing Sub-models During Incremental Process Discovery](https://doi.org/10.1007/978-3-030-89022-3_2)                            | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2021 |
+| [Visualizing Trace Variants from Partially Ordered Event Data](https://doi.org/10.1007/978-3-030-98581-3_3)                        | Schuster, D., Schade, L., van Zelst, S.J., van der Aalst, W.M.P.    | 2021 |
+| [Cortado—An Interactive Tool for Data-Driven Process Discovery and Modeling](https://doi.org/10.1007/978-3-030-76983-3_23)         | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2021 |
+| [Incremental Discovery of Hierarchical Process Models](https://doi.org/10.1007/978-3-030-50316-1_25)                               | Schuster, D., van Zelst, S.J., van der Aalst, W.M.P.                | 2020 |
 
 ## Citing Cortado
 
 If you are using or referencing Cortado in scientific work, please cite Cortado as follows.
 
-> Schuster, D., van Zelst, S.J., van der Aalst, W.M.P. (2021). Cortado—An Interactive Tool for Data-Driven Process Discovery and Modeling. In: Application and Theory of Petri Nets and Concurrency. PETRI NETS 2021. Lecture Notes in Computer Science, vol 12734. Springer, Cham. https://doi.org/10.1007/978-3-030-76983-3_23
+> Schuster, D., van Zelst, S.J., van der Aalst, W.M.P. (2023). Cortado: A dedicated process mining tool for interactive process discovery. SoftwareX Vol. 22. Elsevier. https://doi.org/10.1016/j.softx.2023.101373.
+
 
 Download citation 
-[.BIB](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=bibtex&flavour=citation)&nbsp;
-[.RIS](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=refman&flavour=citation)&nbsp;
-[.ENW](https://citation-needed.springer.com/v2/references/10.1007/978-3-030-76983-3_23?format=endnote&flavour=citation)
+https://www.sciencedirect.com/science/article/pii/S2352711023000699
 
 DOI
-[10.1007/978-3-030-76983-3_23](https://doi.org/10.1007/978-3-030-76983-3_23)
+[10.1016/j.softx.2023.101373](https://doi.org/10.1016/j.softx.2023.101373)
 
 
 
 ## Contact
 
-If you are interested in Cortado, get in touch if you have any questions or custom request via [Mail - daniel.schuster@fit.fraunhofer.de](mailto:daniel.schuster@fit.fraunhofer.de)
+If you are interested in Cortado, get in touch if you have any questions or custom request via Mail - [daniel.schuster@rwth-aachen.de](mailto:daniel.schuster@rwth-aachen.de)
 
 

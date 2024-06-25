@@ -6,12 +6,14 @@ import {
   OnInit,
   Output,
   EventEmitter,
+  NgZone,
 } from '@angular/core';
 import { DomSanitizer, SafeStyle } from '@angular/platform-browser';
 import { NgxFileDropEntry, FileSystemFileEntry } from 'ngx-file-drop';
 import { BackendService } from 'src/app/services/backendService/backend.service';
 import { DropZoneDirective } from 'src/app/directives/drop-zone/drop-zone.directive';
 import Swal from 'sweetalert2';
+import { LoadingOverlayService } from 'src/app/services/loadingOverlayService/loading-overlay.service';
 
 @Component({
   selector: 'app-drop-zone',
@@ -32,7 +34,9 @@ export class DropZoneComponent extends DropZoneDirective implements OnInit {
 
   constructor(
     private sanitizer: DomSanitizer,
-    private backendService: BackendService
+    private backendService: BackendService,
+    private loadingOverlayService: LoadingOverlayService,
+    private ngZone: NgZone
   ) {
     super();
   }
@@ -88,13 +92,29 @@ export class DropZoneComponent extends DropZoneDirective implements OnInit {
           fileEntry.file((file: File) => {
             switch (fileEnding) {
               case '.xes':
-                !environment.electron
-                  ? this.backendService.uploadEventLog(file)
-                  : this.backendService.loadEventLogFromFilePath(file['path']);
+                this.ngZone.run(() => {
+                  this.loadingOverlayService.showLoader(
+                    'Importing event log (for large logs this can take up to several minutes)'
+                  );
+
+                  const backendCall = !environment.electron
+                    ? this.backendService.uploadEventLog(file)
+                    : this.backendService.loadEventLogFromFilePath(
+                        file['path']
+                      );
+
+                  backendCall.subscribe((_) => {
+                    this.loadingOverlayService.hideLoader();
+                  });
+                });
                 break;
 
               case '.ptml':
-                this.backendService.loadProcessTreeFromFilePath(file['path']);
+                !environment.electron
+                  ? this.backendService.loadProcessTreeFromFile(file)
+                  : this.backendService.loadProcessTreeFromFilePath(
+                      file['path']
+                    );
                 break;
               default:
                 break;

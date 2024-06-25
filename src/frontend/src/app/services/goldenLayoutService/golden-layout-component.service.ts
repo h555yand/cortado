@@ -1,9 +1,10 @@
 import {
-  ComponentFactoryResolver,
+  EnvironmentInjector,
   Injectable,
   Injector,
   StaticProvider,
   Type,
+  createComponent,
 } from '@angular/core';
 import {
   ComponentContainer,
@@ -13,8 +14,11 @@ import {
   JsonValue,
   LayoutManager,
   RowOrColumn,
+  Stack,
 } from 'golden-layout';
+import { ActivityOverviewComponent } from 'src/app/components/activity-overview/activity-overview.component';
 import { GoldenLayoutHostComponent } from 'src/app/components/golden-layout-host/golden-layout-host.component';
+import { LpmMetricsTabComponent } from 'src/app/components/lpm-explorer/lpm-metrics-tab/lpm-metrics-tab.component';
 import { LayoutChangeDirective } from 'src/app/directives/layout-change/layout-change.directive';
 
 @Injectable({
@@ -25,7 +29,7 @@ export class GoldenLayoutComponentService {
   private _goldenLayoutHostComponent: GoldenLayoutHostComponent;
   private _goldenLayout: GoldenLayout;
 
-  constructor(private componentFactoryResolver: ComponentFactoryResolver) {}
+  constructor(private environmentInjector: EnvironmentInjector) {}
 
   splitViewIds = [];
 
@@ -81,11 +85,10 @@ export class GoldenLayoutComponentService {
       const injector = Injector.create({
         providers: [provider],
       });
-      const componentFactoryRef =
-        this.componentFactoryResolver.resolveComponentFactory<LayoutChangeDirective>(
-          componentType
-        );
-      return componentFactoryRef.create(injector);
+      return createComponent(componentType, {
+        environmentInjector: this.environmentInjector,
+        elementInjector: injector,
+      });
     }
   }
 
@@ -167,6 +170,24 @@ export class GoldenLayoutComponentService {
 
       (pt_editor_row as RowOrColumn).addItem(itemConfig, 1);
     }
+  }
+
+  activateLpmMetricsView() {
+    if (!this.goldenLayout.rootItem) {
+      return;
+    }
+
+    const stackItem = findContentItemByUniqueID(
+      ActivityOverviewComponent.componentName + '_Container_Stack',
+      this.goldenLayout.rootItem
+    ) as Stack;
+
+    stackItem.setActiveComponentItem(
+      this.goldenLayout.findFirstComponentItemById(
+        LpmMetricsTabComponent.componentName
+      ),
+      true
+    );
   }
 }
 

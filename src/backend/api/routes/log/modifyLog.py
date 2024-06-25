@@ -1,6 +1,6 @@
 from typing import List, Any
 
-from cortado_core.utils.split_graph import Group
+from cortado_core.utils.split_graph import Group, create_graph_for_cvariant
 from fastapi import Response, status
 
 import cache.cache
@@ -66,7 +66,7 @@ class removeVariants(BaseModel):
 
 
 @router.post("/deleteVariants")
-async def removeVariants(d: removeVariants):
+async def delete_variants(d: removeVariants):
     cache_current_data()
 
     res = remove_variant(d.bids)
@@ -75,43 +75,56 @@ async def removeVariants(d: removeVariants):
 
 
 @router.post("/revertLastChange")
-async def removeVariants():
+async def revert_last_change():
     res = reset_last_transaction()
 
     return res
 
 
 class userDefinedVariant(BaseModel):
-    variant: Any
+    variant: Any = None
     bid: int
 
 
 @router.post("/addUserDefinedVariant", status_code=201)
-async def remove_activity_name_in_log(request: userDefinedVariant, response: Response):
+async def add_user_defined_variant(request: userDefinedVariant, response: Response):
     v = Group.deserialize(request.variant)
+    v.graphs[create_graph_for_cvariant(v)] = 1
+
     if request.bid in cache.cache.variants:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return
 
     cache.cache.variants[request.bid] = (
-        v, [], dict(), VariantInformation(infix_type=InfixType.NOT_AN_INFIX, is_user_defined=True))
+        v,
+        [],
+        dict(),
+        VariantInformation(infix_type=InfixType.NOT_AN_INFIX, is_user_defined=True),
+    )
     return
 
 
 class userDefinedInfix(BaseModel):
-    variant: Any
+    variant: Any = None
     bid: int
     infixType: int
 
 
 @router.post("/addUserDefinedInfix", status_code=201)
-async def remove_activity_name_in_log(request: userDefinedInfix, response: Response):
+async def add_user_defined_infix(request: userDefinedInfix, response: Response):
+    infix_type = InfixType(request.infixType)
     v = Group.deserialize(request.variant)
+    v.infix_type = InfixType(request.infixType)
+    v.graphs[create_graph_for_cvariant(v)] = 1
+
     if request.bid in cache.cache.variants:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return
 
-    infix_type = InfixType(request.infixType)
-
-    cache.cache.variants[request.bid] = (v, [], dict(), VariantInformation(infix_type=infix_type, is_user_defined=True))
+    cache.cache.variants[request.bid] = (
+        v,
+        [],
+        dict(),
+        VariantInformation(infix_type=infix_type, is_user_defined=True),
+    )
     return

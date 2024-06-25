@@ -6,10 +6,14 @@ import {
   ProcessTreeOperator,
 } from 'src/app/objects/ProcessTree/ProcessTree';
 import { flextree } from 'd3-flextree';
+import { ContextMenuService } from '@perfectmemory/ngx-contextmenu';
 
 import * as d3 from 'd3';
 import { ModelViewModeService } from 'src/app/services/viewModeServices/model-view-mode.service';
 import { ViewMode } from 'src/app/objects/ViewMode';
+import { VariantService } from '../../services/variantService/variant.service';
+import { getBootstrapTooltipsAllowList } from '../../components/process-tree-editor/utils';
+import { ProcessTreeEditorContextMenuComponent } from 'src/app/components/process-tree-editor/process-tree-editor-context-menu/process-tree-editor-context-menu.component';
 
 @Directive({
   selector: '[appProcessTreeDrawer]',
@@ -26,10 +30,15 @@ export class ProcessTreeDrawerDirective {
   constructor(
     elRef: ElementRef,
     private processTreeService: ProcessTreeService,
-    private modelViewModeService: ModelViewModeService
+    private modelViewModeService: ModelViewModeService,
+    private variantService: VariantService,
+    private contextMenuService: ContextMenuService<any>
   ) {
     this.mainSvgGroup = d3.select(elRef.nativeElement);
   }
+
+  @Input()
+  contextMenuComponent: ProcessTreeEditorContextMenuComponent;
 
   @Input()
   computeNodeColor;
@@ -53,19 +62,24 @@ export class ProcessTreeDrawerDirective {
       this.root = null;
     }
 
-    this.update(this.root);
+    // synchronization between update of node width cache and process tree rendering
+    setTimeout(() => this.update(this.root), 0);
   }
 
   drawNodes(node: d3.Selection<any, any, any, any>) {
+    const myDefaultAllowList = getBootstrapTooltipsAllowList();
+
     // add node groups
     this.nodeEnter = node
       .enter()
       .append('g')
-      .attr('id', function (d) {
+      .attr('id', (d) => {
         return d.data.id;
       })
+      .classed('cursor-pointer', true)
       .attr('data-bs-toggle', 'tooltip')
       .attr('data-bs-placement', 'top')
+      .attr('whiteList', myDefaultAllowList)
       .attr('data-bs-title', (d) => this.tooltipText(d))
       .attr('data-bs-template', (d) => {
         if (
@@ -77,7 +91,7 @@ export class ProcessTreeDrawerDirective {
         ) {
           return `<div class="tooltip performance-tooltip" role="tooltip">
                 <div class="tooltip-arrow"></div>
-                <div class="tooltip-inner p-0" style="max-width: none;"></div>
+                <div class="tooltip-inner p-0" style="max-width: none; border-radius: 15px;"></div>
               </div>`;
         }
 
@@ -87,6 +101,23 @@ export class ProcessTreeDrawerDirective {
             </div>`;
       })
       .attr('data-bs-html', true);
+
+    // manually trigger tooltip through jquery
+    this.nodeEnter.on('mouseenter', (e: PointerEvent, data) => {
+      // @ts-ignore
+      this.variantService.activityTooltipReference = $(e.target);
+      this.variantService.activityTooltipReference.tooltip('show');
+    });
+
+    this.nodeEnter.on('contextmenu', (e: PointerEvent, data) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.contextMenuService.show(this.contextMenuComponent?.contextMenu, {
+        value: data.data,
+        x: e.x,
+        y: e.y,
+      });
+    });
 
     // add nodes
     this.nodeEnter
@@ -231,9 +262,6 @@ export class ProcessTreeDrawerDirective {
       .attr('stroke', PT_Constant.STROKE_COLOR)
       .classed('frozen-edge', (d) => {
         return d.source.data.frozen;
-      })
-      .classed('selected-edge', (e) => {
-        return e.source.data.selected;
       });
   }
 
@@ -242,7 +270,6 @@ export class ProcessTreeDrawerDirective {
 
     if (root) {
       // add node groups that contain a rectangle and text
-
       this.calculateTreeLayout(root);
 
       const node = this.mainSvgGroup

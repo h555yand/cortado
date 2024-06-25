@@ -1,0 +1,60 @@
+name: Test
+
+on: [push, pull_request]
+
+concurrency:
+  group: "${{ github.ref }}#${{ github.workflow}}"
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  unit_tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        pip install -r <(grep -v cortado-core requirements.txt)
+        pip install pytest pytest-cov
+
+    - name: Install cortado-core
+      run: pip install git+https://github.com/cortado-tool/cortado-core@${{ github.ref_name == 'main' && 'main' || 'develop'  }}#egg=cortado_core
+
+    - run: pytest
+
+  backend-system-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        lfs: true
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: pip install -r <(grep -v cortado-core requirements.txt)
+
+    - name: Install cortado-core
+      run: pip install git+https://github.com/cortado-tool/cortado-core@${{ github.ref_name == 'main' && 'main' || 'develop'  }}#egg=cortado_core
+
+    - name: Test backend start-up
+      run: |
+        python main.py &
+        sleep 30
+        curl -I localhost:40000/info
+        pkill -f "python main.py"

@@ -30,6 +30,9 @@ export class VariantInfoComponent implements OnInit, OnDestroy {
   @Output()
   public updateConformance = new EventEmitter<Variant>();
 
+  @Output()
+  public variantInfoEvent = new EventEmitter<void>();
+
   public processTreeIsPresent: boolean = false;
 
   private _destroy$ = new Subject();
@@ -47,7 +50,7 @@ export class VariantInfoComponent implements OnInit, OnDestroy {
     this.processTreeService.currentDisplayedProcessTree$
       .pipe(takeUntil(this._destroy$))
       .subscribe((t) => {
-        this.processTreeIsPresent = t !== undefined && t !== null;
+        this.processTreeIsPresent = t?.isValid();
       });
 
     if (this.variant.infixType != InfixType.NOT_AN_INFIX) {
@@ -81,5 +84,9 @@ export class VariantInfoComponent implements OnInit, OnDestroy {
         this.variant.isTimeouted ||
         this.variant.deviations === undefined)
     );
+  }
+
+  emitVariantInfoWindowEvent() {
+    this.variantInfoEvent.emit();
   }
 }

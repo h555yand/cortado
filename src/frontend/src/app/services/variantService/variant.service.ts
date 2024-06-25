@@ -5,9 +5,7 @@ import { LogService } from 'src/app/services/logService/log.service';
 import * as objectHash from 'object-hash';
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
-import { tap } from 'rxjs/operators';
-import { HttpClient } from '@angular/common/http';
-import { mapVariants } from 'src/app/utils/util';
+import { map, mergeMap, tap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import {
   getInfixTypeForSelectedInfix,
@@ -15,21 +13,28 @@ import {
   InfixType,
   removeIntermediateGroupsWithSingleElements,
 } from 'src/app/objects/Variants/infix_selection';
-import { Variant } from 'src/app/objects/Variants/variant';
+import { FragmentStatistics, Variant } from 'src/app/objects/Variants/variant';
 import {
   deserialize,
   SequenceGroup,
-  VariantElement,
 } from 'src/app/objects/Variants/variant_element';
 import {
   addVariantInformation,
   compute_delete_activity_variants,
   compute_rename_activity_variants,
 } from './variant-transformation';
-import { ROUTES } from 'src/app/constants/backend_route_constants';
 import { ToastService } from '../toast/toast.service';
 import { VariantSorter } from 'src/app/objects/Variants/variant-sorter';
 import { LoopCollapsedVariant } from 'src/app/objects/Variants/loop_collapsed_variant';
+import { ClusteringConfig } from 'src/app/objects/ClusteringConfig';
+import { BackendService } from '../backendService/backend.service';
+import {
+  ActivityDeletion,
+  ActivityRenaming,
+  UserDefinedInfixAddition,
+  UserDefinedVariantAddition,
+  VariantsDeletion,
+} from 'src/app/objects/LogModification';
 
 @Injectable({
   providedIn: 'root',
@@ -37,20 +42,35 @@ import { LoopCollapsedVariant } from 'src/app/objects/Variants/loop_collapsed_va
 export class VariantService {
   variantService: any;
   nameChanges: BehaviorSubject<any> = new BehaviorSubject<any>(null);
+
+  // reference for activity element to manually hide tooltips on activities upon click
+  private _activityTooltipReference;
+  get activityTooltipReference() {
+    return this._activityTooltipReference;
+  }
+
+  set activityTooltipReference(value) {
+    this._activityTooltipReference = value;
+  }
+
   constructor(
     private logService: LogService,
-    private httpClient: HttpClient,
     private processTreeService: ProcessTreeService,
     private colorMapService: ColorMapService,
     private toastService: ToastService,
-    private variantFilterService: VariantFilterService
+    private variantFilterService: VariantFilterService,
+    private backendService: BackendService
   ) {
     this.logService.loadedEventLog$.subscribe(() => {
       this.variantFilterService.clearAllFilters();
+      if (this.logService.variants) {
+        this.variants = this.logService.variants;
+        this.cachedChange = false;
+      }
     });
   }
 
-  public showTiebreakerDialog: Subject<any> = new Subject<any>();
+  public showVariantSequentializerDialog: Subject<any> = new Subject<any>();
   private _variants = new BehaviorSubject<Variant[]>([]);
   private _collapsedVariants = new BehaviorSubject<LoopCollapsedVariant[]>(
     null
@@ -75,6 +95,25 @@ export class VariantService {
 
   get variants(): Variant[] {
     return this._variants.getValue();
+  }
+
+  private _clusteringConfig = new BehaviorSubject<ClusteringConfig>(null);
+
+  set clusteringConfig(clusteringConfig: ClusteringConfig) {
+    if (clusteringConfig) {
+      this.computeClusterClustering(clusteringConfig);
+    } else {
+      this.resetClusterAssignments();
+    }
+    this._clusteringConfig.next(clusteringConfig);
+  }
+
+  get clusteringConfig(): ClusteringConfig {
+    return this._clusteringConfig.getValue();
+  }
+
+  get clusteringConfig$(): Observable<ClusteringConfig> {
+    return this._clusteringConfig.asObservable();
   }
 
   public lastChangeRenaming = null;
@@ -163,124 +202,157 @@ export class VariantService {
     this.nUserVariants += 1;
     newVariant.bid = -this.nUserVariants;
 
-    this.addInfixToBackend(newVariant);
-
-    this.countFragmentOccurrences(newVariant)
+    this.addInfixToBackend(newVariant)
       .pipe(
-        tap((statistics) => {
-          newVariant.fragmentStatistics = statistics;
-          currentVariants.push(newVariant);
-          this.variants = currentVariants;
-        })
+        mergeMap(() => this.backendService.countFragmentOccurrences(newVariant))
       )
-      .pipe(
-        tap((_) => {
-          let sortedVariants = VariantSorter.sort(
-            this.variants,
-            sortingFeature,
-            isAscending
-          ) as Variant[];
+      .subscribe((statistics: FragmentStatistics) => {
+        newVariant.count = statistics.traceOccurrences;
+        newVariant.fragmentStatistics = statistics;
+        currentVariants.push(newVariant);
+        this.variants = currentVariants;
 
-          this.toastService.showSuccessToast(
-            'Variant Explorer',
-            `The selected infix is added at position ${
-              sortedVariants.indexOf(newVariant) + 1
-            }.`,
-            'bi-list-ul'
-          );
-          variant.variant.resetSelectionStatus();
-        })
-      )
-      .subscribe();
+        let sortedVariants = VariantSorter.sort(
+          this.variants,
+          sortingFeature,
+          isAscending
+        ) as Variant[];
+
+        this.toastService.showSuccessToast(
+          'Variant Explorer',
+          `The selected infix is added at position ${
+            sortedVariants.indexOf(newVariant) + 1
+          }.`,
+          'bi-list-ul'
+        );
+        variant.variant.resetSelectionStatus();
+      });
   }
 
-  public deleteVariant(variant: VariantElement): void {
-    const matchingVariant = this.variants.filter(
-      (v) => v.variant === variant
-    )[0];
-
-    this.deleteVariants([matchingVariant.bid]);
+  public deleteVariant(bid: number): void {
+    this.deleteVariants([bid]).subscribe();
   }
 
-  public deleteVariants(bids: number[]): void {
-    this.propagateVariantDeletions(bids).subscribe((res) => {
-      this.logService.activitiesInEventLog = res['activities'];
-      this.logService.startActivitiesInEventLog = new Set(
-        res['startActivities']
-      );
-      this.logService.endActivitiesInEventLog = new Set(res['endActivities']);
+  public deleteVariants(bids: number[]): Observable<any> {
+    this.logService.logModifications.push(new VariantsDeletion(bids));
+    return this.backendService.deleteVariants(bids).pipe(
+      tap((res) => {
+        this.logService.activitiesInEventLog = res['activities'];
+        this.logService.startActivitiesInEventLog = new Set(
+          res['startActivities']
+        );
+        this.logService.endActivitiesInEventLog = new Set(res['endActivities']);
 
-      let filtered_variants = this.variants.filter(
-        (v) => !bids.includes(v.bid)
-      );
+        let filtered_variants = this.variants.filter(
+          (v) => !bids.includes(v.bid)
+        );
 
-      this.logService.computeLogStats(filtered_variants);
-      this.variants = filtered_variants;
-      this.cachedChange = true;
-    });
+        this.logService.computeLogStats(filtered_variants);
+        this.variants = filtered_variants;
+        this.cachedChange = true;
+      })
+    );
     // Count deleted Activites, Recompute if an Activity is a Start or End Activity.
   }
 
-  countFragmentOccurrences(variant: Variant): Observable<any> {
-    let variantElement: VariantElement = variant.variant;
+  /**
+   * Computes a mapping that maps the bid of each variant to
+   * a cluster.
+   * @param clusteringConfig
+   * @returns mapping of each bid to a clusterId
+   */
+  private computeClusterClustering(clusteringConfig: ClusteringConfig) {
+    this.backendService
+      .computeClusters(clusteringConfig)
+      .pipe(map(this.createBidToClusterIdMapping()))
+      .subscribe((clusterMap) => {
+        this.assignClusters(clusterMap);
+      });
+  }
 
-    const payload = {
-      infixType: InfixType[variant.infixType],
-      fragment: variantElement.serialize(),
+  private assignClusters(clusterMap: any) {
+    this.variants = this.variants.map((variant: Variant) => {
+      variant.clusterId = clusterMap[variant.bid];
+      return variant;
+    });
+  }
+
+  private createBidToClusterIdMapping() {
+    return (clusters: Variant[][]) => {
+      let result = {};
+      clusters.forEach((cluster, clusterId) => {
+        cluster.forEach((variant) => (result[variant.bid] = clusterId));
+      });
+      return result;
     };
+  }
 
-    return this.httpClient.post<any>(
-      ROUTES.HTTP_BASE_URL + ROUTES.VARIANT + 'countFragmentOccurrences',
-      payload
-    );
+  private resetClusterAssignments() {
+    this.variants.forEach((variant) => {
+      // undefined is the default cluster id when no algorithm was applied
+      variant.clusterId = -1;
+    });
+
+    this.variants = this.variants;
   }
 
   public deleteActivity(activityName: string) {
+    this.logService.logModifications.push(new ActivityDeletion(activityName));
     const [variants, fallthrough, delete_member_list, merge_list, delete_list] =
       compute_delete_activity_variants(activityName, this.variants);
 
     this.logService.deleteActivityInEventLog(activityName);
 
-    this.propagateActivityDeletion(
-      activityName,
-      fallthrough,
-      delete_member_list,
-      merge_list,
-      delete_list.map((v) => v.bid)
-    ).subscribe((res) => {
-      this.logService.startActivitiesInEventLog = new Set(
-        res['startActivities']
+    return this.backendService
+      .deleteActivity(
+        activityName,
+        fallthrough,
+        delete_member_list,
+        merge_list,
+        delete_list.map((v) => v.bid)
+      )
+      .pipe(
+        tap((res) => {
+          this.logService.startActivitiesInEventLog = new Set(
+            res['startActivities']
+          );
+
+          this.logService.endActivitiesInEventLog = new Set(
+            res['endActivities']
+          );
+
+          variants.forEach((v) => {
+            for (let bid of Object.keys(res['update_variants'])) {
+              if (v.bid.toString() === bid) {
+                v.nSubVariants = res['update_variants'][v.bid]['nSubVariants'];
+                v.count = res['update_variants'][v.bid]['count'];
+              }
+            }
+          });
+
+          res['new_variants'].forEach((variant) => {
+            variant['id'] = objectHash(variant['variant']);
+            variant['variant'] = deserialize(variant.variant);
+          });
+
+          const new_variants = addVariantInformation(res['new_variants']);
+
+          variants.push(...new_variants);
+
+          this.cachedChange = true;
+          this.logService.computeLogStats(variants);
+
+          this.afterVariantChange();
+          this.variants = variants;
+        })
       );
-
-      this.logService.endActivitiesInEventLog = new Set(res['endActivities']);
-
-      variants.forEach((v) => {
-        for (let bid of Object.keys(res['update_variants'])) {
-          if (v.bid.toString() === bid) {
-            v.nSubVariants = res['update_variants'][v.bid]['nSubVariants'];
-            v.count = res['update_variants'][v.bid]['count'];
-          }
-        }
-      });
-
-      res['new_variants'].forEach((variant) => {
-        variant['id'] = objectHash(variant['variant']);
-        variant['variant'] = deserialize(variant.variant);
-      });
-
-      const new_variants = addVariantInformation(res['new_variants']);
-
-      variants.push(...new_variants);
-
-      this.cachedChange = true;
-      this.logService.computeLogStats(variants);
-
-      this.afterVariantChange();
-      this.variants = variants;
-    });
   }
 
   public renameActivity(activityName: string, newActivityName: string) {
+    this.logService.logModifications.push(
+      new ActivityRenaming(activityName, newActivityName)
+    );
+
     const [variants, rename_list, merge_list, updateMap] =
       compute_rename_activity_variants(
         activityName,
@@ -299,120 +371,73 @@ export class VariantService {
       newActivityName
     );
 
-    this.propagateActivityNameChange(
-      merge_list,
-      rename_list,
-      activityName,
-      newActivityName
-    ).subscribe((res) => {
-      variants.forEach((v) => {
-        for (let bid of Object.keys(res)) {
-          if (v.bid.toString() === bid) {
-            v.nSubVariants = res[v.bid]['nSubVariants'];
-          }
-        }
-      });
-
-      this.afterVariantChange();
-      this.variants = variants;
-    });
-
-    this.logService.update_log_stats(null, null, null, updateMap.size);
-    this.cachedChange = true;
-    this.lastChangeRenaming = [activityName, newActivityName];
-    this.nameChanges.next([activityName, newActivityName]);
-  }
-
-  private propagateActivityNameChange(
-    mergeList,
-    renameList,
-    activityName,
-    newActivityName
-  ) {
-    return this.httpClient.post(
-      ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'changeActivityName',
-      {
-        mergeList: mergeList,
-        renameList: renameList,
-        activityName: activityName,
-        newActivityName: newActivityName,
-      }
-    );
-  }
-
-  private propagateActivityDeletion(
-    activityName,
-    fallthrough,
-    delete_member_list,
-    merge_list,
-    delete_variant_list
-  ) {
-    return this.httpClient.post(
-      ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'deleteActivity',
-      {
-        activityName: activityName,
-        fallthrough: fallthrough,
-        delete_member_list: delete_member_list,
-        merge_list: merge_list,
-        delete_variant_list: delete_variant_list,
-      }
-    );
-  }
-
-  private propagateVariantDeletions(bids: number[]) {
-    return this.httpClient.post(
-      ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'deleteVariants',
-      {
-        bids: bids,
-      }
-    );
-  }
-
-  revertChangeInBackend() {
-    this.httpClient
-      .post(ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'revertLastChange', {})
-      .pipe(mapVariants())
-      .subscribe((res) => {
-        this.logService.activitiesInEventLog = res['activities'];
-        this.logService.startActivitiesInEventLog = new Set(
-          res['startActivities']
-        );
-        this.logService.endActivitiesInEventLog = new Set(res['endActivities']);
-
-        this.logService.performanceInfoAvailable = true;
-        this.logService.timeGranularity = res['timeGranularity'];
-        this.logService.logGranularity = res['timeGranularity'];
-
-        const lastNameChange = this.lastChangeRenaming;
-        this.cachedChange = false;
-
-        const variants = addVariantInformation(res['variants']);
-        this.afterVariantChange();
-
-        this.variants = variants;
-        this.logService.computeLogStats(variants);
-        if (lastNameChange !== null) {
-          this.nameChanges.next([lastNameChange[1], lastNameChange[0]]);
-        }
-      });
-  }
-
-  public addUserDefinedVariant(variant: VariantElement, bid: number) {
-    this.httpClient
-      .post(
-        ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'addUserDefinedVariant',
-        {
-          variant: variant.serialize(),
-          bid: bid,
-        }
+    return this.backendService
+      .changeActivityName(
+        merge_list,
+        rename_list,
+        activityName,
+        newActivityName
       )
-      .subscribe(
-        (res) => console.log(res),
-        (err) => console.log('error ' + err)
+      .pipe(
+        tap((res) => {
+          variants.forEach((v) => {
+            for (let bid of Object.keys(res)) {
+              if (v.bid.toString() === bid) {
+                v.nSubVariants = res[v.bid]['nSubVariants'];
+              }
+            }
+          });
+
+          this.afterVariantChange();
+          this.variants = variants;
+
+          this.logService.update_log_stats(null, null, null, updateMap.size);
+          this.cachedChange = true;
+          this.lastChangeRenaming = [activityName, newActivityName];
+          this.nameChanges.next([activityName, newActivityName]);
+        })
       );
   }
 
-  public unCollapseLoopsInVariants() {
+  revertChangeInBackend() {
+    this.backendService.revertLastLogModification().subscribe((res) => {
+      this.logService.activitiesInEventLog = res['activities'];
+      this.logService.startActivitiesInEventLog = new Set(
+        res['startActivities']
+      );
+      this.logService.endActivitiesInEventLog = new Set(res['endActivities']);
+
+      this.logService.performanceInfoAvailable = true;
+      this.logService.timeGranularity = res['timeGranularity'];
+      this.logService.logGranularity = res['timeGranularity'];
+
+      const lastNameChange = this.lastChangeRenaming;
+      this.cachedChange = false;
+
+      const variants = addVariantInformation(res['variants']);
+      this.afterVariantChange();
+
+      this.variants = variants;
+      this.logService.computeLogStats(variants);
+      if (lastNameChange !== null) {
+        this.nameChanges.next([lastNameChange[1], lastNameChange[0]]);
+      }
+    });
+  }
+
+  public addUserDefinedVariant(variant: Variant) {
+    this.logService.logModifications.push(
+      new UserDefinedVariantAddition(variant)
+    );
+    return this.backendService.addUserDefinedVariant(variant).pipe(
+      tap(
+        (res) => console.log(res),
+        (err) => console.log('error ' + err)
+      )
+    );
+  }
+
+  public expandCollapseLoopsInVariants() {
     if (this.areVariantLoopsCollapsed) {
       this.collapsedVariants = null;
     } else {
@@ -427,46 +452,42 @@ export class VariantService {
   }
 
   private loadLoopCollapsedVariants() {
-    this.httpClient
-      .get(ROUTES.HTTP_BASE_URL + ROUTES.IMPORT + 'collapsedVariants')
-      .subscribe((res) => {
-        let collapsedVariants = [];
+    this.backendService.getCollapsedVariants().subscribe((res) => {
+      let collapsedVariants = [];
 
-        let bidToVariant = new Map<number, Variant>();
-        for (let variant of this.variants) {
-          bidToVariant.set(variant.bid, variant);
+      let bidToVariant = new Map<number, Variant>();
+      for (let variant of this.variants) {
+        bidToVariant.set(variant.bid, variant);
+      }
+
+      for (let idx in res) {
+        let collapsedVariant = res[idx];
+
+        let underlyingVariants = [];
+
+        for (let bid of collapsedVariant['ids']) {
+          underlyingVariants.push(bidToVariant.get(bid));
         }
 
-        for (let idx in res) {
-          let collapsedVariant = res[idx];
+        collapsedVariants.push(
+          new LoopCollapsedVariant(
+            uuidv4(),
+            underlyingVariants,
+            deserialize(collapsedVariant['variant'])
+          )
+        );
+      }
 
-          let underlyingVariants = [];
-
-          for (let bid of collapsedVariant['ids']) {
-            underlyingVariants.push(bidToVariant.get(bid));
-          }
-
-          collapsedVariants.push(
-            new LoopCollapsedVariant(
-              uuidv4(),
-              underlyingVariants,
-              deserialize(collapsedVariant['variant'])
-            )
-          );
-        }
-
-        this.collapsedVariants = collapsedVariants;
-      });
+      this.collapsedVariants = collapsedVariants;
+    });
   }
 
-  private addInfixToBackend(variant: Variant) {
-    this.httpClient
-      .post(ROUTES.HTTP_BASE_URL + ROUTES.MODIFY_LOG + 'addUserDefinedInfix', {
-        variant: variant.variant.serialize(),
-        bid: variant.bid,
-        infixType: variant.infixType,
-      })
-      .subscribe(
+  public addInfixToBackend(variant: Variant) {
+    this.logService.logModifications.push(
+      new UserDefinedInfixAddition(variant)
+    );
+    return this.backendService.addUserDefinedInfix(variant).pipe(
+      tap(
         (_) => console.log('successfully added infix to backend'),
         (_) =>
           this.toastService.showErrorToast(
@@ -474,6 +495,7 @@ export class VariantService {
             `Adding the selected infix failed`,
             'bi-exclamation-circle'
           )
-      );
+      )
+    );
   }
 }

@@ -1,14 +1,4 @@
-<app-drop-zone
-  [dropzoneConfig]="dropZoneConfig"
-  (fileOnHover)="toggleBlur($event)"
->
-</app-drop-zone>
-
-<div
-  class="d-flex flex-column mh-100 h-100 activityOverviewContainer"
-  [class.blurOutOfFocus]="activityOverviewOutOfFocus"
->
-  <div class="bg-dark"></div>
+<div class="d-flex flex-column mh-100 h-100 activity-overview-container">
   <div class="table-container flex-grow-1 table-responsive">
     <table
       class="table table-sm table-font table-hover table-striped table-borderless table-dark mb-0"
@@ -22,27 +12,16 @@
             class="bg-dark th-dropdown-colors resizeable-header-element"
             [margin]="-7"
           >
-            <div
-              class="btn-group align-baseline dropDownParent dropdown ms-auto center"
-              ngbTooltip="edit activity colors"
-              placement="end"
-              container="body"
-            >
+            <div>
               <button
-                class="button dropdown-toggle"
                 type="button"
-                data-bs-toggle="dropdown"
+                class="button"
+                ngbTooltip="Reset activity colors"
+                triggers="hover"
+                (click)="resetActivityColors()"
               >
-                <i class="bi bi-palette"></i>
+                <i class="bi bi-arrow-counterclockwise btn-icon me-1"></i>
               </button>
-              <div class="dropdown-menu custom-dropdown">
-                <div class="fst-italic fw-bold ps-2 text-center">
-                  Edit activities
-                </div>
-                <div class="dropdown-item" (click)="resetActivityColors()">
-                  <span class="ms-4">Reset activity colors</span>
-                </div>
-              </div>
             </div>
           </th>
           <th
@@ -53,8 +32,10 @@
             [margin]="-7"
           >
             <div class="d-flex justify-content-between">
-              <div class="table-header-sort-group">
-                <em class="user-select-none">Activity name</em>
+              <div
+                class="d-flex flex-row justify-content-center table-header-sort-group"
+              >
+                <div class="user-select-none mx-1">Activity</div>
                 <i
                   class="bi"
                   [ngClass]="{
@@ -71,6 +52,7 @@
                   (click)="revertLastChange($event)"
                   *ngIf="resetAvailable"
                   ngbTooltip="revert last change to the event log"
+                  triggers="hover"
                   container="body"
                 >
                   <i class="bi bi-arrow-counterclockwise btn-icon"></i>
@@ -85,8 +67,10 @@
             (click)="toggleSort('inModel')"
             [margin]="-7"
           >
-            <div class="table-header-sort-group">
-              <em class="user-select-none">in model</em>
+            <div
+              class="d-flex flex-row justify-content-center table-header-sort-group"
+            >
+              <div class="user-select-none mx-1">in model</div>
               <i
                 class="bi"
                 [ngClass]="{
@@ -104,12 +88,19 @@
             (click)="toggleSort('isStart')"
             [margin]="-7"
           >
-            <div class="table-header-sort-group">
+            <div
+              class="d-flex flex-row justify-content-center table-header-sort-group"
+            >
               <ng-template #startActivityTooltip>
                 <b class="text-primary">start-activity</b> (in the event log,
                 there exists a case that starts with the given activity)
               </ng-template>
-              <div [ngbTooltip]="startActivityTooltip" container="body">
+              <div
+                [ngbTooltip]="startActivityTooltip"
+                triggers="hover"
+                container="body"
+                class="mx-1"
+              >
                 <i class="bi bi-chevron-right text-white"></i>
                 <i
                   class="bi bi-chevron-double-right"
@@ -134,12 +125,16 @@
             (click)="toggleSort('isEnd')"
             [margin]="-7"
           >
-            <div class="table-header-sort-group">
+            <div class="d-flex flex-row justify-content-center sort-group">
               <ng-template #endActivityTooltip>
                 <b class="text-primary">end-activity</b> (in the event log,
                 there exists a case that ends with the given activity)
               </ng-template>
-              <div [ngbTooltip]="endActivityTooltip" container="body">
+              <div
+                [ngbTooltip]="endActivityTooltip"
+                triggers="hover"
+                container="body"
+              >
                 <!--            <i class="bi bi-chevron-double-right"></i>-->
                 <i
                   class="bi bi-chevron-double-right"
@@ -167,10 +162,14 @@
             (click)="toggleSort('occurences')"
             [margin]="-7"
           >
-            <div class="table-header-sort-group">
-              <div>
-                <i class="bi bi-hash"></i
-                ><em class="user-select-none">occurrence</em>
+            <div
+              class="d-flex flex-row justify-content-center table-header-sort-group"
+            >
+              <div
+                ngbTooltip="Number of activity occurrences in the loaded event log"
+                triggers="hover"
+              >
+                <i class="bi bi-hash"></i>
               </div>
               <i
                 class="bi"
@@ -190,7 +189,7 @@
           <tr
             *ngFor="
               let activityField of activityFields
-                | activityOverviewSorting : sortKey : ascending
+                | tableSorting : sortKey : ascending
             "
           >
             <!-- <th class="user-select-none" [ngStyle]="{'background-color': activityField.color}">&nbsp;</th> -->
@@ -202,7 +201,7 @@
                 class="color-picker-div"
                 [style.color]="activityField.color"
                 [cpPosition]="'auto'"
-                [(colorPicker)]="color"
+                [(colorPicker)]="activityField.color"
                 [cpOutputFormat]="'hex'"
                 [cpUseRootViewContainer]="true"
                 [cpCloseClickOutside]="false"
@@ -212,7 +211,9 @@
                 [cpCancelButtonClass]="'button cp-button'"
                 [cpOKButton]="true"
                 [cpOKButtonClass]="'button cp-button'"
-                (colorPickerSelect)="changeActivityColor(activityField, color)"
+                (colorPickerSelect)="
+                  changeActivityColor(activityField, activityField.color)
+                "
               >
                 &nbsp;&nbsp;&nbsp;&nbsp;
               </div>
@@ -234,6 +235,7 @@
                 class="cursor-pointer remove-activity-button"
                 (click)="deleteActivity($event, activityField)"
                 ngbTooltip="remove activity from event log"
+                triggers="hover"
                 container="body"
               >
                 <i class="bi bi-trash"></i>
@@ -249,11 +251,16 @@
               <i class="bi bi-check2" *ngIf="activityField.isEnd"></i>
             </td>
             <td class="text-center user-select-none">
-              {{ activityField.occurences }}
+              {{ activityField.occurences | number }}
             </td>
           </tr>
         </ng-container>
       </tbody>
     </table>
+  </div>
+  <div class="bg-dark user-select-none">
+    <app-activity-overview-info-bar
+      [activityFields]="activityFields"
+    ></app-activity-overview-info-bar>
   </div>
 </div>

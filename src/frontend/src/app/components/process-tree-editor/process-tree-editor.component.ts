@@ -41,10 +41,7 @@ import { ProcessTreeDrawerDirective } from 'src/app/directives/process-tree-draw
 import { getPerformanceTable } from './utils';
 import { collapsingText } from 'src/app/animations/text-animations';
 import { textColorForBackgroundColor } from 'src/app/utils/render-utils';
-import {
-  NodeSeletionStrategy,
-  NodeInsertionStrategy,
-} from 'src/app/objects/ProcessTree/utility-functions/process-tree-edit-tree';
+import { NodeInsertionStrategy } from 'src/app/objects/ProcessTree/utility-functions/process-tree-edit-tree';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { ModelViewModeService } from 'src/app/services/viewModeServices/model-view-mode.service';
@@ -102,22 +99,38 @@ export class ProcessTreeEditorComponent
   nodeEnter;
 
   collapse: boolean = false;
-  NodeSeletionStrategy = NodeSeletionStrategy;
-  nodeSelectionStrategy: NodeSeletionStrategy = NodeSeletionStrategy.TREE;
 
-  NodeInsertionStrategy = NodeInsertionStrategy;
+  readonly NodeInsertionStrategy = NodeInsertionStrategy;
   nodeInsertionStrategy: NodeInsertionStrategy = NodeInsertionStrategy.ABOVE;
   lastNodeInsertionStrategy: NodeInsertionStrategy;
 
   selectedRootNodeId: number;
-  selectedRootNode: d3.HierarchyNode<any>;
+  selectedRootNode: d3.HierarchyNode<ProcessTree>;
 
-  // indicates if the entire subtree below the selectedRootNode is selected or only the single node
-  selectedRootNodeOnly: boolean;
+  readonly disabledInsertPositions = {
+    above: false,
+    leftRight: false,
+    below: false,
+  };
 
-  insertPositionLeftRightDisabled = false;
-  insertPositionAboveDisabled = false;
-  insertPositionBelowDisabled = false;
+  get disabledActivityInsertion() {
+    if (
+      this.nodeInsertionStrategy === NodeInsertionStrategy.ABOVE &&
+      this.selectedRootNode?.data
+    )
+      return true;
+    // Disable insertion when no node is selected but pt is present
+    if (!this.selectedRootNode && this.currentlyDisplayedTreeInEditor)
+      return true;
+    return false;
+  }
+
+  get disabledOperatorInsertion() {
+    // Disable insertion when no node is selected but pt is present
+    if (!this.selectedRootNode && this.currentlyDisplayedTreeInEditor)
+      return true;
+    return false;
+  }
 
   root: d3.HierarchyNode<any>;
 
@@ -125,10 +138,6 @@ export class ProcessTreeEditorComponent
 
   activityColorMap: Map<string, string>;
   performanceColorMap: Map<number, any>;
-
-  processEditorOutOfFocus: boolean = false;
-
-  dropZoneConfig: DropzoneConfig;
   editorOpen: boolean = false;
   _goldenLayoutHostComponent: GoldenLayoutHostComponent;
   _goldenLayout: GoldenLayout;
@@ -143,14 +152,13 @@ export class ProcessTreeEditorComponent
 
   private _destroy$ = new Subject();
 
-  ngOnInit(): void {
-    this.dropZoneConfig = new DropzoneConfig(
-      '.ptml',
-      'false',
-      'false',
-      '<large> Import <strong>Process Tree</strong> .ptml file</large>'
-    );
+  get processTreeOriginX() {
+    return this.d3ContainerElem.nativeElement.offsetWidth / 2;
+  }
 
+  readonly processTreeOriginY = 30;
+
+  ngOnInit(): void {
     this.processTreeService.treeCacheIndex$
       .pipe(takeUntil(this._destroy$))
       .subscribe((idx) => {
@@ -161,12 +169,6 @@ export class ProcessTreeEditorComponent
       .pipe(takeUntil(this._destroy$))
       .subscribe((len) => {
         this.treeCacheLength = len;
-      });
-
-    this.processTreeService.selectionMode$
-      .pipe(takeUntil(this._destroy$))
-      .subscribe((strategy) => {
-        this.nodeSelectionStrategy = strategy;
       });
 
     this.modelViewModeService.viewMode$
@@ -213,7 +215,8 @@ export class ProcessTreeEditorComponent
     this.processTreeService.currentDisplayedProcessTree$
       .pipe(takeUntil(this._destroy$))
       .subscribe((res) => {
-        // If the tree was loaded via the process tree import or Drag&Drop that does not contain the current activites
+        const centerTree = !this.currentlyDisplayedTreeInEditor && !!res;
+        // If the tree was loaded via the process tree import or Drag&Drop that does not contain the current activities
         this.currentlyDisplayedTreeInEditor = res;
 
         if (res) {
@@ -222,8 +225,8 @@ export class ProcessTreeEditorComponent
           this.processTreeSyntaxInfo = checkSyntax(res);
           this.processTreeService.correctTreeSyntax =
             this.processTreeSyntaxInfo.correctSyntax;
-
           this.redraw(res);
+          if (centerTree) this.centerTree();
         } else if (res === null && this.mainSvgGroup) {
           this.processTreeDrawer.redraw(null);
           this.selectedRootNode = null;
@@ -244,8 +247,7 @@ export class ProcessTreeEditorComponent
       this.performanceColorScaleService.getColorScale();
 
     this.processTreeDrawer.redraw(tree);
-
-    this.selectRootNodeFromID(this.selectedRootNodeId);
+    setTimeout(() => this.selectRootNodeFromID(this.selectedRootNodeId), 0);
   }
 
   ngAfterViewInit(): void {
@@ -264,8 +266,7 @@ export class ProcessTreeEditorComponent
       .subscribe((id) => {
         // Change the Selection
         if (id) {
-          this.selectRootNodeFromID(id);
-
+          this.selectRootNodeFromID(id); //the last one failed
           // Unselect all
         } else {
           this.clearDisplayedSelection();
@@ -276,20 +277,13 @@ export class ProcessTreeEditorComponent
   }
 
   private selectRootNodeFromID(id) {
-    const selectedRoot = this.mainSvgGroup.select('[id="' + id + '"]');
+    const selectedRoot = this.mainSvgGroup.select(`[id="${id}"]`);
     const node = selectedRoot.data()[0];
-
     if (id && node) {
       this.setSelectedRootNode(node);
       this.selectSubtreeFromRoot(selectedRoot.node(), node);
-      this.selectEdges();
 
-      this.insertPositionAboveDisabled = Boolean(
-        this.selectedRootNode.parent
-      ).valueOf();
-      this.insertPositionBelowDisabled = Boolean(
-        this.selectedRootNode.data.operator
-      ).valueOf();
+      this.checkNodeInsertionStrategy(this.selectedRootNode.data);
     }
   }
 
@@ -319,24 +313,10 @@ export class ProcessTreeEditorComponent
 
   insertNewNodeButtonDisabled(): boolean {
     return (
-      (!this.singleNodeSelected() || !this.selectedRootNode) &&
+      !this.selectedRootNode &&
       this.currentlyDisplayedTreeInEditor !== null &&
       this.currentlyDisplayedTreeInEditor !== undefined
     );
-  }
-
-  selectNodeButton(): void {
-    this.processTreeService.selectedRootNodeID = null;
-    this.processTreeService.selectionMode = NodeSeletionStrategy.NODE;
-  }
-
-  selectSubtreeButton(): void {
-    this.processTreeService.selectedRootNodeID = null;
-    this.processTreeService.selectionMode = NodeSeletionStrategy.TREE;
-  }
-
-  singleNodeSelected(): boolean {
-    return this.selectedRootNode && this.selectedRootNodeOnly;
   }
 
   leafNodeSelected(): boolean {
@@ -347,35 +327,76 @@ export class ProcessTreeEditorComponent
     return this.selectedRootNode && this.selectedRootNode.depth === 0;
   }
 
-  buttonManipulatingMultipleNodesDisabled(): boolean {
-    return (
-      !this.selectedRootNode ||
-      this.rootNodeSelected() ||
-      (this.nodeSelectionStrategy == NodeSeletionStrategy.NODE &&
-        !this.leafNodeSelected())
-    );
+  get shiftSubtreeUpDisabled(): boolean {
+    if (this.buttonManipulatingMultipleNodesDisabled()) return true;
+    // Disabled if there is no granparent of the selected node
+    if (!this.selectedRootNode.data.parent.parent) return true;
+    return false;
   }
 
-  buttonDeleteSubtreeDisabled(): boolean {
-    return (
-      !this.selectedRootNode ||
-      (this.nodeSelectionStrategy == NodeSeletionStrategy.NODE &&
-        !this.leafNodeSelected())
-    );
+  get shiftSubtreeLeftDisabled(): boolean {
+    if (this.buttonManipulatingMultipleNodesDisabled()) return true;
+    const selectedNode = this.selectedRootNode.data;
+    // Disabled when selected subtree already at leftmost position
+    if (selectedNode.parent.children.indexOf(selectedNode) == 0) return true;
+    return false;
+  }
+
+  get shiftSubtreeRightDisabled(): boolean {
+    if (this.buttonManipulatingMultipleNodesDisabled()) return true;
+    const selectedNode = this.selectedRootNode.data;
+    // Disabled when selected subtree already at rightmost position
+    if (
+      selectedNode.parent.children.indexOf(selectedNode) ==
+      selectedNode.parent.children.length - 1
+    )
+      return true;
+    return false;
+  }
+
+  buttonManipulatingMultipleNodesDisabled(): boolean {
+    return !this.selectedRootNode || this.rootNodeSelected();
   }
 
   buttonFreezeSubtreeDisabled(): boolean {
     return !this.selectedRootNode || this.leafNodeSelected();
   }
 
-  // @REFRACTOR INTO PROCESSTREE SERVICE
+  shiftSubtreeUp(): void {
+    this.processTreeService.shiftSubtreeUp(this.selectedRootNode.data);
+  }
+
   shiftSubtreeToLeft(): void {
     this.processTreeService.shiftSubtreeToLeft(this.selectedRootNode.data);
   }
 
-  // @REFRACTOR INTO PROCESSTREE SERVICE
   shiftSubtreeToRight(): void {
     this.processTreeService.shiftSubtreeToRight(this.selectedRootNode.data);
+  }
+
+  get copyDisabled() {
+    return !this.selectedRootNode;
+  }
+
+  copySubtree(): void {
+    this.processTreeService.copySubtreeToBuffer(this.selectedRootNode.data);
+  }
+
+  cutSubtree(): void {
+    this.processTreeService.copySubtreeToBuffer(this.selectedRootNode.data);
+    this.processTreeService.deleteSelected(this.selectedRootNode.data);
+  }
+
+  get pasteDisabled() {
+    return (
+      !this.processTreeService.bufferedProcessTree ||
+      (!this.selectedRootNode && this.currentlyDisplayedTreeInEditor) ||
+      this.selectedRootNode?.data.label
+    );
+  }
+
+  pasteSubtree(): void {
+    this.processTreeService.pasteSubtreeFromBuffer(this.selectedRootNode?.data);
   }
 
   undo(): void {
@@ -386,14 +407,13 @@ export class ProcessTreeEditorComponent
     this.processTreeService.redo();
   }
 
-  horizontallyCenterTree(): void {
+  centerTree(): void {
     this.mainSvgGroup.attr(
       'transform',
-      'translate(' + this.d3ContainerElem.nativeElement.offsetWidth / 2 + ', 0)'
+      `translate(${this.processTreeOriginX}, ${this.processTreeOriginY})`
     );
   }
 
-  // @REFRACTOR INTO PROCESSTREE SERVICE
   deleteSubtree(): void {
     this.processTreeService.deleteSelected(this.selectedRootNode.data);
   }
@@ -409,7 +429,6 @@ export class ProcessTreeEditorComponent
   }
 
   afterInsertNode(): void {
-    this.selectedRootNodeOnly = true;
     this.searchText = undefined;
   }
 
@@ -429,11 +448,14 @@ export class ProcessTreeEditorComponent
     switch (this.modelViewModeService.viewMode) {
       case ViewMode.CONFORMANCE:
         if (d.data.conformance === null) return '#404041';
-        return this.conformanceCheckingService.conformanceColorMap.getColor(
+        const conformanceValue =
           this.conformanceCheckingService.isConformanceWeighted &&
-            d.data.conformance.weighted_by_counts != undefined
-            ? d.data.conformance.weighted_by_counts.value
-            : d.data.conformance.weighted_equally.value
+          d.data.conformance?.weighted_by_counts != undefined
+            ? d.data.conformance?.weighted_by_counts.value
+            : d.data.conformance?.weighted_equally.value;
+        if (conformanceValue === 0) return 'url(#modelConformanceStriped)';
+        return this.conformanceCheckingService.modelConformanceColorMap.getColor(
+          conformanceValue
         );
       case ViewMode.PERFORMANCE:
         if (d.data.label !== ProcessTreeOperator.tau) {
@@ -443,13 +465,20 @@ export class ProcessTreeEditorComponent
               this.selectedStatistic
             ] !== undefined
           ) {
-            return this.performanceColorMap
-              .get(d.data.id)
-              .getColor(
-                d.data.performance[this.selectedPerformanceIndicator][
-                  this.selectedStatistic
-                ]
-              );
+            if (
+              d.data.performance[this.selectedPerformanceIndicator][
+                this.selectedStatistic
+              ] === 0
+            )
+              return 'url(#whiteStriped)';
+            else
+              return this.performanceColorMap
+                .get(d.data.id)
+                .getColor(
+                  d.data.performance[this.selectedPerformanceIndicator][
+                    this.selectedStatistic
+                  ]
+                );
           } else {
             return '#404040';
           }
@@ -467,31 +496,32 @@ export class ProcessTreeEditorComponent
   };
 
   tooltipContent = (d: d3.HierarchyNode<ProcessTree>) => {
+    let returnTempValue = d.data.label || d.data.operator;
+
     const tableHead =
-      `<div style="display: flex; justify-content: space-between" class="bg-dark">
+      `<div style="display: flex; justify-content: space-between; border-radius: 5px 5px 0px 0px;" class="bg-dark">
         <h6 style="flex: 1; margin-top: 8px;">` +
       (d.data.label || d.data.operator) +
       `</h6>
       </div>`;
+
     if (
       this.modelViewModeService.viewMode === ViewMode.PERFORMANCE &&
       d.data.hasPerformance() &&
       d.data.label !== ProcessTreeOperator.tau
     ) {
-      return (
+      returnTempValue =
         tableHead +
         getPerformanceTable(
           d.data.performance,
           this.selectedPerformanceIndicator,
           this.selectedStatistic
-        )
-      );
-    }
-    if (
+        );
+    } else if (
       this.modelViewModeService.viewMode === ViewMode.CONFORMANCE &&
       d.data.conformance !== null
-    )
-      return (
+    ) {
+      returnTempValue =
         tableHead +
         `<table class="table table-dark table-striped table-bordered">
           <tr>
@@ -501,24 +531,24 @@ export class ProcessTreeEditorComponent
           </tr>` +
         `<tr>
             <td>Equally</td>
-            <td>${(d.data.conformance.weighted_equally.value * 100).toFixed(
+            <td>${(d.data.conformance?.weighted_equally.value * 100).toFixed(
               2
             )}%</td>
-            <td>${d.data.conformance.weighted_equally.weight}</td>
+            <td>${d.data.conformance?.weighted_equally.weight}</td>
         </tr>` +
-        (d.data.conformance.weighted_by_counts !== null
+        (d.data.conformance?.weighted_by_counts !== null
           ? `<tr>
             <td>By Log Frequency</td>
-            <td>${(d.data.conformance.weighted_by_counts?.value * 100).toFixed(
+            <td>${(d.data.conformance?.weighted_by_counts?.value * 100).toFixed(
               2
             )}%</td>
-            <td>${d.data.conformance.weighted_by_counts?.weight}</td>
+            <td>${d.data.conformance?.weighted_by_counts?.weight}</td>
         </tr>`
           : '') +
-        '</table>'
-      );
+        '</table>';
+    }
 
-    return d.data.label || d.data.operator;
+    return returnTempValue;
   };
 
   computeFillColor = (d: d3.HierarchyNode<ProcessTree>) => {
@@ -549,20 +579,14 @@ export class ProcessTreeEditorComponent
 
   // END - Inserting node functionality
 
-  // Refactor to Directive with Variant Editor / BPMN Viewer
+  // Refactor to Directive with Variant Modeler / BPMN Viewer
   addZoomFunctionality(): void {
-    this.mainSvgGroup.attr(
-      'transform',
-      'translate(' + this.d3ContainerElem.nativeElement.offsetWidth / 2 + ',0)'
-    );
     const zooming = function (event) {
-      // .translate((this.d3ContainerElem.nativeElement.offsetWidth / 2), 0) is needed to center the tree
-      // otherwise center is at (0,0)
       this.mainSvgGroup.attr(
         'transform',
         event.transform.translate(
-          this.d3ContainerElem.nativeElement.offsetWidth / 2,
-          0
+          this.processTreeOriginX,
+          this.processTreeOriginY
         )
       );
     }.bind(this);
@@ -578,14 +602,22 @@ export class ProcessTreeEditorComponent
           .transition()
           .duration(250)
           .ease(d3.easeExpInOut)
-          .call(zoom.transform, d3.zoomIdentity.translate(0, 30));
+          .call(zoom.transform, d3.zoomIdentity.translate(0, 0));
       }.bind(this)
     );
   }
 
-  selectNodeCallBack = (self, event, d) => {
-    this.pushIDtoService(self, d),
-      (this.processTreeService.selectedTree = ProcessTree.fromObj(d.data));
+  selectNodeCallBack = (self, event, d: d3.HierarchyNode<ProcessTree>) => {
+    // hide the tooltip
+    if (self.variantService.activityTooltipReference) {
+      self.variantService.activityTooltipReference.tooltip('hide');
+    }
+    // correct the selected node after undo
+    if (d && d.data && d.parent) {
+      d.data.parent = d.parent.data;
+    }
+    this.pushIDtoService(self, d);
+    this.processTreeService.selectedTree = ProcessTree.fromObj(d.data);
   };
 
   private pushIDtoService = (svg, d) => {
@@ -597,12 +629,9 @@ export class ProcessTreeEditorComponent
     }
   };
 
-  private setSelectedRootNode = function (d) {
+  private setSelectedRootNode(d) {
     this.selectedRootNode = d;
-    this.selectedRootNodeOnly =
-      this.nodeSelectionStrategy == NodeSeletionStrategy.NODE ||
-      this.leafNodeSelected();
-  };
+  }
 
   private selectSubtreeFromRoot = function (svgGroup, d) {
     // Unselect All Edges and Rect
@@ -616,12 +645,7 @@ export class ProcessTreeEditorComponent
     // Select the node, if it isn't selected yet
     d.data.selected = true;
 
-    // Chose depending on selection strategy, to paint all children
-    if (this.nodeSelectionStrategy == NodeSeletionStrategy.TREE) {
-      this.selectAllChildren(svgGroup, d);
-    } else {
-      d3.select(svgGroup).select('.node').classed('selected-node', true);
-    }
+    d3.select(svgGroup).select('.node').classed('selected-node', true);
   };
 
   private selectAllChildren = function (svgGroup, d) {
@@ -640,9 +664,6 @@ export class ProcessTreeEditorComponent
   };
 
   private selectEdges = function () {
-    if (this.nodeSelectionStrategy == NodeSeletionStrategy.NODE) {
-      return;
-    }
     this.mainSvgGroup
       .selectAll('line')
       .classed('frozen-edge', (e) => {
@@ -682,7 +703,7 @@ export class ProcessTreeEditorComponent
     // add svg group for zooming
     this.mainSvgGroup = this.svg.select('#zoomGroup');
 
-    this.horizontallyCenterTree();
+    this.centerTree();
     this.addZoomFunctionality();
   }
 
@@ -755,32 +776,51 @@ export class ProcessTreeEditorComponent
     this.imageExportService.export(
       'process_tree',
       svgBBox.width + 2 * PT_Constant.EXPORT_OFFSET,
-      svgBBox.height + PT_Constant.EXPORT_OFFSET,
+      svgBBox.height + 2 * PT_Constant.EXPORT_OFFSET,
       tree_copy
     );
   }
 
-  toggleBlur(event) {
-    this.processEditorOutOfFocus = event;
-  }
+  checkNodeInsertionStrategy(rootNode: ProcessTree) {
+    this.disabledInsertPositions.leftRight = false;
 
-  checkNodeInsertionStrategy() {
+    // Disable insertions above on non-root nodes
+    this.disabledInsertPositions.above = rootNode.parent != null;
+    // Disable insertions below non-operator nodes, i.e. activities
+    this.disabledInsertPositions.below = rootNode.operator == null;
+    // Disable insertions left/right of root node
+    if (rootNode.parent == null) this.disabledInsertPositions.leftRight = true;
+    // Disable insertions left/right of child from loop node that already has 2 childs
+    if (
+      rootNode.parent?.operator === ProcessTreeOperator.loop &&
+      rootNode.parent?.children.length === 2
+    )
+      this.disabledInsertPositions.leftRight = true;
+    // Disable insertions below redo node that has 2 childs
+    if (
+      rootNode.operator === ProcessTreeOperator.loop &&
+      rootNode.children.length === 2
+    )
+      this.disabledInsertPositions.below = true;
+
     switch (this.nodeInsertionStrategy) {
       case NodeInsertionStrategy.ABOVE:
-        if (this.insertPositionAboveDisabled)
+        if (this.disabledInsertPositions.above)
           this.nodeInsertionStrategy =
             this.getFirstAvailableNodeInsertionStrategy();
         break;
       case NodeInsertionStrategy.BELOW:
-        if (this.insertPositionBelowDisabled)
+        if (this.disabledInsertPositions.below)
           this.nodeInsertionStrategy =
             this.getFirstAvailableNodeInsertionStrategy();
         break;
       case NodeInsertionStrategy.LEFT:
       case NodeInsertionStrategy.RIGHT:
-        if (this.insertPositionLeftRightDisabled)
+        if (this.disabledInsertPositions.leftRight)
           this.nodeInsertionStrategy =
             this.getFirstAvailableNodeInsertionStrategy();
+        break;
+      case NodeInsertionStrategy.CHANGE:
         break;
       default:
         this.nodeInsertionStrategy =
@@ -789,14 +829,36 @@ export class ProcessTreeEditorComponent
   }
 
   getFirstAvailableNodeInsertionStrategy(): NodeInsertionStrategy {
-    if (!this.insertPositionAboveDisabled) return NodeInsertionStrategy.ABOVE;
-    if (!this.insertPositionLeftRightDisabled)
+    if (!this.disabledInsertPositions.above) return NodeInsertionStrategy.ABOVE;
+    if (!this.disabledInsertPositions.leftRight)
       return NodeInsertionStrategy.LEFT;
-    if (!this.insertPositionBelowDisabled) return NodeInsertionStrategy.BELOW;
+    if (!this.disabledInsertPositions.below) return NodeInsertionStrategy.BELOW;
     return NodeInsertionStrategy.CHANGE;
   }
 
   hideAllTooltips() {}
+
+  get allQuickActionsDisabled() {
+    return this.makeOptionalDisabled && this.makeRepeatableDisabled;
+  }
+
+  onMakeOptional() {
+    if (!this.selectedRootNode) return;
+    this.processTreeService.makeSubtreeOptional(this.selectedRootNode.data);
+  }
+
+  get makeOptionalDisabled() {
+    return !this.selectedRootNode;
+  }
+
+  onMakeRepeatable() {
+    if (!this.selectedRootNode) return;
+    this.processTreeService.makeSubtreeRepeatable(this.selectedRootNode.data);
+  }
+
+  get makeRepeatableDisabled() {
+    return !this.selectedRootNode;
+  }
 }
 
 // TODO should be solved differently
