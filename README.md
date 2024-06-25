@@ -17,8 +17,9 @@
 - Export discovered process models as `.ptml` or `.pnml` files
 - Temporal performance analysis, both model-based and model-independent
 
+## Downloads
 
-**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available from the GitHub Release Page.
+**Standalone builds** for **Windows 10/11**, **Linux**, and **macOS** (Apple Silicon only) are available from the [GitHub Releases Page](https://github.com/cortado-tool/cortado/releases).
 
 ## Demo
 
