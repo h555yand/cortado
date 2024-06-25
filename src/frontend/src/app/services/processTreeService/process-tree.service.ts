@@ -462,7 +462,7 @@ export class ProcessTreeService {
     if (this.currentDisplayedProcessTree) {
       insertNode(selectedNode, newNode, strat, operator, label);
 
-      if (!newNode.parent && selectedNode.parent == newNode) {
+      if (!newNode.parent || selectedNode.parent == newNode) {
         this.currentDisplayedProcessTree = newNode;
       }
       this.selectedRootNodeID = newNode.id;
@@ -503,10 +503,15 @@ export class ProcessTreeService {
     const choice = createNewRandomNode(null, ProcessTreeOperator.choice);
     const tau = createNewRandomNode(ProcessTreeOperator.tau, null);
 
-    const siblings = processTree.parent.children;
-    const idxInParentChildList = siblings.indexOf(processTree);
+    if (processTree.parent) {
+      const siblings = processTree.parent.children;
+      const idxInParentChildList = siblings.indexOf(processTree);
 
-    siblings.splice(idxInParentChildList, 1, choice);
+      siblings.splice(idxInParentChildList, 1, choice);
+    } else {
+      this.currentDisplayedProcessTree = choice;
+    }
+
     choice.parent = processTree.parent;
     choice.children = [tau, processTree];
     processTree.parent = choice;
@@ -521,10 +526,14 @@ export class ProcessTreeService {
     const loop = createNewRandomNode(null, ProcessTreeOperator.loop);
     const tau = createNewRandomNode(ProcessTreeOperator.tau, null);
 
-    const siblings = processTree.parent.children;
-    const idxInParentChildList = siblings.indexOf(processTree);
+    if (processTree.parent) {
+      const siblings = processTree.parent.children;
+      const idxInParentChildList = siblings.indexOf(processTree);
 
-    siblings.splice(idxInParentChildList, 1, loop);
+      siblings.splice(idxInParentChildList, 1, loop);
+    } else {
+      this.currentDisplayedProcessTree = loop;
+    }
     loop.parent = processTree.parent;
     loop.children = [processTree, tau];
     processTree.parent = loop;

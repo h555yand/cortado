@@ -120,26 +120,27 @@ export class BpmnDrawerDirective {
     }
   }
 
-  drawBlock(model: Block_Structured_BPMN, selection) {
+  drawBlock(model: Block_Structured_BPMN, selection, reversed = false) {
     selection.datum(model._pt);
     selection.attr('id', model._pt.id);
 
     if (model instanceof SequenceBlock) {
-      this.drawSequenceBlock(model, selection);
+      this.drawSequenceBlock(model, selection, reversed);
     } else if (model instanceof Event) {
       this.drawEvent(model, selection);
     } else if (model instanceof ParallelBlock) {
-      this.drawParallelBlock(model, selection);
+      this.drawParallelBlock(model, selection, reversed);
     } else if (model instanceof ChoiceBlock) {
-      this.drawChoiceBlock(model, selection);
+      this.drawChoiceBlock(model, selection, reversed);
     } else if (model instanceof LoopBlock) {
-      this.drawLoopBlock(model, selection);
+      this.drawLoopBlock(model, selection, reversed);
     }
   }
 
   drawParallelBlock(
     model: ParallelBlock,
-    selection: d3.Selection<any, any, any, any>
+    selection: d3.Selection<any, any, any, any>,
+    reversed = false
   ) {
     const parallel_block = selection;
 
@@ -186,7 +187,7 @@ export class BpmnDrawerDirective {
           .append('g')
           .attr('transform', `translate(${offset_x + center}, ${offset_y})`);
 
-        this.drawBlock(block, g);
+        this.drawBlock(block, g, reversed);
 
         // draw line from entry block to member block
         this.drawLine(
@@ -195,7 +196,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + interpolate.y,
           offset_x + center,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // draw line from member block to leave block
@@ -207,7 +209,8 @@ export class BpmnDrawerDirective {
             2 * BPMN_Constant.HORIZONTALSPACING +
             interpolate.y,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + interpolate.y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // Draw a skip-line in the tau case
@@ -221,7 +224,8 @@ export class BpmnDrawerDirective {
             2 * BPMN_Constant.HORIZONTALSPACING +
             interpolate.y,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
       }
 
@@ -237,7 +241,8 @@ export class BpmnDrawerDirective {
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
         model.core_width + 2 * BPMN_Constant.HORIZONTALSPACING + interpolate.y,
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-        model._pt.frozen
+        model._pt.frozen,
+        reversed
       );
     }
 
@@ -255,7 +260,8 @@ export class BpmnDrawerDirective {
 
   drawChoiceBlock(
     model: ChoiceBlock,
-    selection: d3.Selection<any, any, any, any>
+    selection: d3.Selection<any, any, any, any>,
+    reversed = false
   ) {
     const choiceblock = selection;
 
@@ -300,7 +306,7 @@ export class BpmnDrawerDirective {
           .append('g')
           .attr('transform', `translate(${offset_x + center}, ${offset_y})`);
 
-        this.drawBlock(block, g);
+        this.drawBlock(block, g, reversed);
 
         // draw line from entry block to member block
         this.drawLine(
@@ -309,7 +315,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + interpolate.y,
           offset_x + center,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // draw line from member block to leave block
@@ -321,7 +328,8 @@ export class BpmnDrawerDirective {
             2 * BPMN_Constant.HORIZONTALSPACING +
             interpolate.y,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + interpolate.y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // Draw a skip-line in the tau case
@@ -335,7 +343,8 @@ export class BpmnDrawerDirective {
             2 * BPMN_Constant.HORIZONTALSPACING +
             interpolate.y,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
       }
 
@@ -351,7 +360,8 @@ export class BpmnDrawerDirective {
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
         model.core_width + 2 * BPMN_Constant.HORIZONTALSPACING + interpolate.y,
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-        model._pt.frozen
+        model._pt.frozen,
+        reversed
       );
     }
 
@@ -367,7 +377,11 @@ export class BpmnDrawerDirective {
     this.drawOperatorNode(leave_operator, model);
   }
 
-  drawLoopBlock(model: LoopBlock, selection: d3.Selection<any, any, any, any>) {
+  drawLoopBlock(
+    model: LoopBlock,
+    selection: d3.Selection<any, any, any, any>,
+    reversed = false
+  ) {
     const loop_block = selection;
 
     const enter_operator = loop_block.append('g');
@@ -393,7 +407,7 @@ export class BpmnDrawerDirective {
           do_block.eventName === ProcessTreeOperator.tau
         )
       ) {
-        this.drawBlock(do_block, g);
+        this.drawBlock(do_block, g, reversed);
 
         // Draw line from do block to member block
         this.drawLine(
@@ -402,7 +416,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
           offset_x + center,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // Draw line from do block to leave block
@@ -412,7 +427,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
           model.core_width + 2 * BPMN_Constant.HORIZONTALSPACING,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
 
         // Draw a skip-line in the tau case
@@ -424,7 +440,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
           model.core_width + 2 * BPMN_Constant.HORIZONTALSPACING,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
       }
 
@@ -445,7 +462,7 @@ export class BpmnDrawerDirective {
             .append('g')
             .attr('transform', `translate(${offset_x + center}, ${offset_y})`);
 
-          this.drawBlock(redo_block, g);
+          this.drawBlock(redo_block, g, !reversed);
 
           // Draw line from redo block to entry block
           this.drawLine(
@@ -455,7 +472,8 @@ export class BpmnDrawerDirective {
             BPMN_Constant.OPERATOR_DIAGONAL_LENGTH,
             BPMN_Constant.BASE_HEIGHT_WIDTH / 2 +
               BPMN_Constant.OPERATOR_DIAGONAL_LENGTH,
-            model._pt.frozen
+            model._pt.frozen,
+            reversed
           );
 
           // Draw line from redo block to leave block
@@ -468,7 +486,8 @@ export class BpmnDrawerDirective {
               BPMN_Constant.OPERATOR_DIAGONAL_LENGTH,
             offset_x + center + redo_block.width,
             BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-            model._pt.frozen
+            model._pt.frozen,
+            reversed
           );
 
           // Draw a skip-line in the tau case
@@ -483,7 +502,8 @@ export class BpmnDrawerDirective {
               BPMN_Constant.OPERATOR_DIAGONAL_LENGTH,
             BPMN_Constant.OPERATOR_DIAGONAL_LENGTH,
             BPMN_Constant.BASE_HEIGHT_WIDTH / 2 + offset_y,
-            model._pt.frozen
+            model._pt.frozen,
+            reversed
           );
         }
       }
@@ -496,7 +516,8 @@ export class BpmnDrawerDirective {
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
         model.core_width + 2 * BPMN_Constant.HORIZONTALSPACING,
         BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-        model._pt.frozen
+        model._pt.frozen,
+        reversed
       );
     }
 
@@ -604,18 +625,21 @@ export class BpmnDrawerDirective {
 
   drawSequenceBlock(
     model: SequenceBlock,
-    selection: d3.Selection<any, any, any, any>
+    selection: d3.Selection<any, any, any, any>,
+    reversed = false
   ) {
     const seq_block = selection;
 
     let offset_x = 0;
 
-    model.members.forEach((block, index, array) => {
+    const children = reversed ? model.members.slice().reverse() : model.members;
+
+    children.forEach((block, index, array) => {
       const g = seq_block
         .append('g')
         .attr('transform', `translate(${offset_x}, 0)`);
 
-      this.drawBlock(block, g);
+      this.drawBlock(block, g, reversed);
       offset_x += block.width;
 
       if (index < array.length - 1) {
@@ -625,7 +649,8 @@ export class BpmnDrawerDirective {
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
           offset_x + BPMN_Constant.HORIZONTALSPACING,
           BPMN_Constant.BASE_HEIGHT_WIDTH / 2,
-          model._pt.frozen
+          model._pt.frozen,
+          reversed
         );
         offset_x += BPMN_Constant.HORIZONTALSPACING;
       }
@@ -638,8 +663,14 @@ export class BpmnDrawerDirective {
     y1: number,
     x2: number,
     y2: number,
-    frozen = false
+    frozen = false,
+    reversed = false
   ) {
+    if (reversed) {
+      [x1, x2] = [x2, x1];
+      [y1, y2] = [y2, y1];
+    }
+
     const lineData: Array<[number, number]> = [[x1, y1]];
     const d = BPMN_Constant.ARROW_LENGTH_WITHOUT_WINGS;
 
@@ -686,8 +717,13 @@ export class BpmnDrawerDirective {
     y1: number,
     x2: number,
     y2: number,
-    frozen = false
+    frozen = false,
+    reversed = false
   ) {
+    if (reversed) {
+      [x1, x2] = [x2, x1];
+    }
+
     const lineData: Array<[number, number]> = [[x1, y1]];
     const d = BPMN_Constant.ARROW_LENGTH_WITHOUT_WINGS;
 
@@ -703,9 +739,13 @@ export class BpmnDrawerDirective {
     }
     // backwards arrow
     else {
-      lineData.push([x1, y2]);
-      lineData.push([x2, y2]);
-      lineData.push([x2, y1 + d]);
+      if (y1 == y2) {
+        lineData.push([x2 + d, y2]);
+      } else {
+        lineData.push([x1, y2]);
+        lineData.push([x2, y2]);
+        lineData.push([x2, y1 + d]);
+      }
     }
 
     const line = selection

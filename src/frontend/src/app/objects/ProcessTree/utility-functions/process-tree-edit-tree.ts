@@ -68,9 +68,11 @@ export function insertNode(
     }
 
     case NodeInsertionStrategy.CHANGE: {
-      const idx: number = selectedNode.parent.children.indexOf(selectedNode);
-      newNode.parent = selectedNode.parent;
-      selectedNode.parent.children.splice(idx, 1, newNode);
+      if (selectedNode.parent) {
+        const idx: number = selectedNode.parent.children.indexOf(selectedNode);
+        newNode.parent = selectedNode.parent;
+        selectedNode.parent.children.splice(idx, 1, newNode);
+      }
       if (operator) newNode.children = selectedNode.children;
       newNode.children.forEach((child) => {
         child.parent = newNode;

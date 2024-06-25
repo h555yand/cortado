@@ -158,7 +158,7 @@ export class Event extends Block_Structured_BPMN {
 
   recalculateWidth(blockWidthCache: Map<string, number> = null) {
     if (this.eventName === ProcessTreeOperator.tau) {
-      this.width = 0;
+      this.width = BPMN_Constant.BASE_HEIGHT_WIDTH;
     } else {
       const width = blockWidthCache[this.eventName];
 
