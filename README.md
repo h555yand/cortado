@@ -5,7 +5,7 @@
 
 <img width="64" src="src/frontend/src/assets/icons/png/64x64.png" alt="Cortado Logo"/>
 
-**Cortado is a process mining tool dedicated for interactive/incremental process discovery.**
+**Cortado is a process mining tool dedicated for interactive/incremental process discovery**
 
 ## Overview Functionality
 
