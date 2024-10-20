@@ -28,14 +28,14 @@ async def load_event_log_from_file(
     config_repo: ConfigurationRepository = Depends(get_config_repo),
 ):
     '''
-    Extension for importing EventLog from CSV file.
+    Extension for importing Event Log from CSV file.
     Requirements to CSV file:
-    1) First row should comntain columns names responisble for values:
+    First row should contain columns names responsible for values:
         first column - case_id
         second column - timestamp_key
         third column - activity_key
         other columns can be any
-    Columns names itslef can be any value only order is important.
+    Columns names itself can be any value, only order is important.
     activity_key should be in '2024-07-09 19:47:53.221' format 
     where milliseconds are optional.
     During import .xes file is created in src/backend 
