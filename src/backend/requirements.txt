@@ -10,3 +10,4 @@ websockets
 git+https://github.com/cortado-tool/cortado-core@main#egg=cortado_core
 cvxopt
 pyinstaller~=6.6.0
+pandas
